@@ -7,8 +7,13 @@
 // Version: 0.0.2 - rename symbol
 // Requires Reach v0.1.7 (stable)
 // ----------------------------------------------
-import { useConstructor } from 'util.rsh'
-import { Participants as AppParticipants,Views, Api, App } from 'interface.rsh'
+import { useConstructor } from '@nash-protocol/starter-kit:util.rsh'
+import { 
+  Participants as AppParticipants,
+  Views as AppViews, 
+  Api as AppApi, 
+  App 
+} from 'interface.rsh'
 export const main = Reach.App(() => 
-  App(useConstructor(AppParticipants, Views, Api)));
+  App(useConstructor(AppParticipants, AppViews, AppApi)));
 // ----------------------------------------------
