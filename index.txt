@@ -1,36 +1,40 @@
+Verifying knowledge assertions
+Verifying for generic connector
+  Verifying when ALL participants are honest
+  Verifying when NO participants are honest
+Checked 188 theorems; No failures!
 START
 CAN DELETED INACTIVE
-38194
-balance (acc): 1000
-balance (acc): 1000
+38865
+balance (acc): 999.9999
+balance (acc): 999.9999
 CAN ACTIVATE WITH PAYMENT
-38203
-Alice went from 999.999 to 1000.993 (1).
-Bob went from 999.999 to 998.9979 (-1).
+38874
+Alice went from 999.998 to 1000.9939 (1).
+Bob went from 999.998 to 998.9989 (-1).
 balance (acc): 999.999
 balance (acc): 999.999
 CAN PURCHASE AT START
-38267
+38938
 AUCTION CREATED
 TOKEN DEPOSITED
 Start Auction
 current price: 100
-balance (acc): 1000.8969
-balance (acc2): 998.793
+balance (acc): 1000.896
+balance (acc2): 998.792
 acc accept offer
-balance (acc): 900.8929
-balance (acc2): 1097.793
+balance (acc): 900.892
+balance (acc2): 1097.792
 balance (acc): 1000
 balance (acc): 1000
 CAN PURCHASE AT END
-38388
+39059
 AUCTION CREATED
 TOKEN DEPOSITED
 Start Auction
 current price: 100
 balance (acc): 1000.898
 balance (acc2): 998.792
-current price: 90
 current price: 60
 current price: 50
 current price: 40
@@ -44,22 +48,22 @@ balance (acc2): 999.784
 balance (acc): 1000
 balance (acc): 1000
 CAN PURCHASE IN MID
-38597
+39268
 AUCTION CREATED
 TOKEN DEPOSITED
 Start Auction
 current price: 100
-balance (acc): 1000.897
-balance (acc2): 998.792
+balance (acc): 1000.898
+balance (acc2): 998.793
 current price: 90
 current price: 50
 acc accept offer
-balance (acc): 950.883
+balance (acc): 950.89
 balance (acc2): 1048.293
 balance (acc): 1000
 balance (acc): 1000
 CAN CANCEL
-38729
+39393
 AUCTION CREATED
 TOKEN DEPOSITED
 Start Auction
@@ -71,7 +75,7 @@ Error: Bid.cancel errored with Error: {"at":"./interface.rsh:174:22:application"
     at processTicksAndRejections (node:internal/process/task_queues:96:5)
 Cancelled by Bob
 3
-balance (acc): 998.79
-balance (acc2): 1000.896
+balance (acc): 998.791
+balance (acc2): 1000.897
 balance (acc): 1000
 balance (acc): 1000
