@@ -6,7 +6,7 @@ The NP starter kit describes how to launch a NP RApp in minutes. Quickstart assu
 
 commands
 ```bash
-git clone git@github.com:ZestBloom/reverse.git-kit 
+git clone git@github.com:ZestBloom/reverse.git
 cd reverse
 source np.sh
 np
