@@ -1,6 +1,10 @@
-# reverse
+# Reverse
 
 The NP starter kit describes how to launch a NP RApp in minutes. Quickstart assumes that the local development environment for Reach has been setup.
+
+## Activation
+
+0.5 ALGO
 
 ## quickstart
 
