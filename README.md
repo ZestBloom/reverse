@@ -6,6 +6,43 @@ Reverse is a reach app, similar to auction, in which an ASA holder to auction an
 
 0.5 ALGO
 
+## Participants
+### Auctioneer
+The Auctioneer sets the auction parameters such as token, start price, and floor price.
+### Depositer
+After the parameters are received from the Auctioneer, the Depoisiter takes over. The depoisiter is the same account as the Auctioneer.
+### Relay
+After the auction is closed. The Relay is that last participant.
+## Views
+In the views accessible through the contract handle in the frontend, there is 1 named view called Auction.
+### Auction
+The auction view provides access to the various states of the auction such as token and current price.
+#### token
+Token is the asset up for auction.
+#### currentPrice
+Current price is the price that the auction may be resolved.
+#### startPrice
+Start price is the price at the begining of the auction.
+#### floorPrice
+Floor price is the lowest price throught the auction.
+#### closed
+Closed is the closed state of the auction, true or false.
+## Api
+In the api accessible through the contract handle in the frontend, there is 1 named api called Bid.
+### Bid
+Bid allows you to interact with the live auction.
+#### touch
+Touch allow you to update the current price. The current price is relative to start price, floor price, and blocks since start of auction. It cannot be manipulated by repetative touch api calls.
+#### acceptOffer
+Accept offer will resolved the auction, transfering ownership to the buyer and payment to the seller.
+
+## Steps
+
+1. Auctioneer sets up auction
+1. Token is deposited
+1. Enter api (can accept/touch)
+1. Relay deletes app
+
 ## quickstart
 
 commands
