@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.0.1 - initial
+// Version: 0.1.0 - add cancel
 // Requires Reach v0.1.7
 // -----------------------------------------------
 // FUNCS
@@ -54,6 +54,7 @@ export const Api = () => [
   API('Bid', {
     touch: Fun([], Null),
     acceptOffer: Fun([], Null),
+    cancel: Fun([], Null),
   })
 ]
 export const App = (map) => {
@@ -122,12 +123,10 @@ export const App = (map) => {
   const referenceConcensusTime = lastConsensusTime()
   const [
     keepGoing,
-    highestBidder,
     currentPrice
   ] =
     parallelReduce([
       true,
-      Auctioneer,
       startPrice
     ])
       .define(() => {
@@ -143,7 +142,6 @@ export const App = (map) => {
           k(null)
           return [
             true,
-            highestBidder,
             max(
               floorPrice,
               (diff =>
@@ -169,7 +167,18 @@ export const App = (map) => {
           transfer([[balance(token), token]]).to(this)
           return [
             false,
-            highestBidder,
+            currentPrice
+          ]
+        }))
+      .api(Bid.cancel,
+        (() => assume(this === Auctioneer)),
+        (() => 0),
+        ((k) => {
+          require(this === Auctioneer)
+          k(null)
+          transfer([[balance(token), token]]).to(this)
+          return [
+            false,
             currentPrice
           ]
         }))
