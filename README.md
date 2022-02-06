@@ -1,6 +1,6 @@
 # Reverse
 
-The NP starter kit describes how to launch a NP RApp in minutes. Quickstart assumes that the local development environment for Reach has been setup.
+Reverse is a reach app, similar to auction, in which an ASA holder to auction an asset for ALGOs. It allows buying and price discovery on the asset during the auction. After the end of the auction time the contract can be closed out resulting in payouts to the seller, marketplace, creator and a transfer of the asset to the buyer. Reverse auctions begin at some start price and work down to a floor price.
 
 ## Activation
 
