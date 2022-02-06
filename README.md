@@ -27,7 +27,7 @@ Start price is the price at the begining of the auction.
 Floor price is the lowest price throught the auction.
 #### closed
 Closed is the closed state of the auction, true or false.
-## Api
+## API
 In the api accessible through the contract handle in the frontend, there is 1 named api called Bid.
 ### Bid
 Bid allows you to interact with the live auction.
