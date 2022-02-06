@@ -1,0 +1,77 @@
+START
+CAN DELETED INACTIVE
+38194
+balance (acc): 1000
+balance (acc): 1000
+CAN ACTIVATE WITH PAYMENT
+38203
+Alice went from 999.999 to 1000.993 (1).
+Bob went from 999.999 to 998.9979 (-1).
+balance (acc): 999.999
+balance (acc): 999.999
+CAN PURCHASE AT START
+38267
+AUCTION CREATED
+TOKEN DEPOSITED
+Start Auction
+current price: 100
+balance (acc): 1000.8969
+balance (acc2): 998.793
+acc accept offer
+balance (acc): 900.8929
+balance (acc2): 1097.793
+balance (acc): 1000
+balance (acc): 1000
+CAN PURCHASE AT END
+38388
+AUCTION CREATED
+TOKEN DEPOSITED
+Start Auction
+current price: 100
+balance (acc): 1000.898
+balance (acc2): 998.792
+current price: 90
+current price: 60
+current price: 50
+current price: 40
+current price: 30
+current price: 20
+current price: 10
+current price: 1
+acc accept offer
+balance (acc): 999.808
+balance (acc2): 999.784
+balance (acc): 1000
+balance (acc): 1000
+CAN PURCHASE IN MID
+38597
+AUCTION CREATED
+TOKEN DEPOSITED
+Start Auction
+current price: 100
+balance (acc): 1000.897
+balance (acc2): 998.792
+current price: 90
+current price: 50
+acc accept offer
+balance (acc): 950.883
+balance (acc2): 1048.293
+balance (acc): 1000
+balance (acc): 1000
+CAN CANCEL
+38729
+AUCTION CREATED
+TOKEN DEPOSITED
+Start Auction
+current price: 100
+2
+Error: Bid.cancel errored with Error: {"at":"./interface.rsh:174:22:application","fs":["at ./interface.rsh:174:9:application call to [unknown function] (defined at: ./interface.rsh:174:13:function exp)","at ./interface.rsh:174:9:application call to [unknown function] (defined at: ./interface.rsh:174:9:function exp)","at ./interface.rsh:128:19:application call to \"runBid_cancel0_200\" (defined at: ./interface.rsh:173:11:function exp)","at ./interface.rsh:128:19:application call to [unknown function] (defined at: ./interface.rsh:128:19:function exp)","at ./index.rsh:18:6:application call to \"App\" (defined at: ./interface.rsh:60:26:function exp)"],"msg":null,"who":"Bid_cancel"}
+    at /Users/nicholasshellabarger/Desktop/node_modules/@reach-sh/stdlib/dist/cjs/shared_impl.js:268:34
+    at runMicrotasks (<anonymous>)
+    at processTicksAndRejections (node:internal/process/task_queues:96:5)
+Cancelled by Bob
+3
+balance (acc): 998.79
+balance (acc2): 1000.896
+balance (acc): 1000
+balance (acc): 1000
