@@ -10,7 +10,7 @@ Reverse is a reach app, similar to auction, in which an ASA holder to auction an
 
 ## Participants
 
-![Reverse2](https://user-images.githubusercontent.com/23183451/152775542-fe924cdc-f296-4410-bb72-0e9cc238c8ca.png)
+![Reverse](https://user-images.githubusercontent.com/23183451/152804363-5db300eb-481e-450f-bf7e-8bcd0cf7f732.png)
 
 **Auctioneer** sets the auction parameters such as token, start price, and floor price.
 
