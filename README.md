@@ -33,13 +33,16 @@ Floor price is the lowest price throught the auction.
 #### closed
 Closed is the closed state of the auction, true or false.
 ## API
-In the api accessible through the contract handle in the frontend, there is 1 named api called Bid.
-### Bid
-Bid allows you to interact with the live auction.
-#### touch
-Touch allow you to update the current price. The current price is relative to start price, floor price, and blocks since start of auction. It cannot be manipulated by repetative touch api calls.
-#### acceptOffer
-Accept offer will resolved the auction, transfering ownership to the buyer and payment to the seller.
+
+![Reverse3](https://user-images.githubusercontent.com/23183451/152784003-2915f72d-0c0d-429e-aac5-a69ff601d67b.png)
+
+**Bid** is the name of the API that allows interaction with a live auction.
+
+**touch** allows activation of the price function. Note, the price may not be manipulated by repetitive touch api calls.
+
+**acceptOffer** resolves the auction as sale.
+
+**cancel** resolves the auction as no sale.
 
 ## Steps
 
