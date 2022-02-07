@@ -3,17 +3,17 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.1.1 - cleanup
+// Version: 0.2.1 - using network secs
 // Requires Reach v0.1.7
 // -----------------------------------------------
 // FUNCS
 import { max, min } from "@nash-protocol/starter-kit:util.rsh";
-const priceFunc = (startPrice, floorPrice, referenceConcensusTime) =>
+const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
   max(
     floorPrice,
     ((diff) => (startPrice <= diff ? floorPrice : startPrice - diff))(
       min(
-        ((lastConsensusTime() - referenceConcensusTime) / 15) * 10 * 1000000,
+        ((lastConsensusSecs() - referenceConcensusSecs) / 60) * dk,
         startPrice - floorPrice
       )
     )
@@ -43,14 +43,15 @@ const auctioneerInteract = {
       creator: Address, // Creator
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
+      endSecs: UInt, // 1
     })
-  ) 
-}
+  ),
+};
 // PARTICIPANTS
 export const Participants = () => [
   Participant("Relay", relayInteract),
   Participant("Depositer", depositerInteract),
-  Participant("Auctioneer", auctioneerInteract)
+  Participant("Auctioneer", auctioneerInteract),
 ];
 export const Views = () => [
   View("Auction", {
@@ -73,6 +74,8 @@ export const App = (map) => {
     {
       addr, // discovery
       addr2, // platform
+      // TODO add royalties
+      //addr3, // creator
     },
     { tok },
     [Relay, Depositer, Auctioneer],
@@ -85,18 +88,22 @@ export const App = (map) => {
   Auctioneer.only(() => {
     const {
       token,
-      creator, // TODO add royalties
       startPrice,
       floorPrice,
+      endSecs,
     } = declassify(interact.getParams());
     assume(floorPrice > 0);
     assume(floorPrice < startPrice);
     assume(tok !== token);
+    assume(endSecs > 0);
   });
-  Auctioneer.publish(token, creator, startPrice, floorPrice).pay(100000); // 0.1 ALGO from auctioneer
+  Auctioneer.publish(token, startPrice, floorPrice, endSecs).pay(
+    100000
+  ); // 0.1 ALGO from auctioneer
   require(floorPrice > 0);
   require(floorPrice < startPrice);
   require(tok != token);
+  require(endSecs > 0);
 
   Auction.startPrice.set(startPrice);
   Auction.floorPrice.set(floorPrice);
@@ -121,7 +128,10 @@ export const App = (map) => {
 
   // Depositer done
 
-  const referenceConcensusTime = lastConsensusTime();
+  const referenceConcensusSecs = lastConsensusSecs();
+  const dk = endSecs > referenceConcensusSecs
+    ? (((endSecs - referenceConcensusSecs) / 60) / (startPrice - floorPrice)) // change evenly between start and floor every minute
+    : 1000; // else 1000 uALGO per minute
   const [keepGoing, currentPrice] = parallelReduce([true, startPrice])
     .define(() => {
       Auction.currentPrice.set(currentPrice);
@@ -137,7 +147,7 @@ export const App = (map) => {
         k(null);
         return [
           true,
-          priceFunc(startPrice, floorPrice, referenceConcensusTime)
+          priceFunc(startPrice, floorPrice, referenceConcensusSecs, dk),
         ];
       }
     )

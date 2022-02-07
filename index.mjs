@@ -143,15 +143,19 @@ const [, , infile] = process.argv;
       backend.Contractee(ctc2, {}),
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
-        getParams: () => ({
-          token: gil.id,
-          addr: addr,
-          addr2: addr,
-          creator: addr,
-          startPrice: stdlib.parseCurrency(100),
-          floorPrice: stdlib.parseCurrency(10),
-          endConsensusTime: 0,
-        }),
+        getParams: async () => {
+          const secs = await stdlib.getNetworkSecs()
+          return ({
+            token: gil.id,
+            addr: addr,
+            addr2: addr,
+            creator: addr,
+            startPrice: stdlib.parseCurrency(100),
+            floorPrice: stdlib.parseCurrency(10),
+            endConsensusTime: 0,
+            endSecs: secs + 10000
+          })
+        },
         signal: () => {
           console.log("AUCTION CREATED");
         },
@@ -213,15 +217,19 @@ const [, , infile] = process.argv;
       backend.Contractee(ctc2, {}),
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
-        getParams: () => ({
-          token: gil.id,
-          addr: addr,
-          addr2: addr,
-          creator: addr,
-          startPrice: stdlib.parseCurrency(100),
-          floorPrice: stdlib.parseCurrency(1),
-          endConsensusTime: 0,
-        }),
+        getParams: async () => {
+          const secs = await stdlib.getNetworkSecs()
+          return ({
+            token: gil.id,
+            addr: addr,
+            addr2: addr,
+            creator: addr,
+            startPrice: stdlib.parseCurrency(100),
+            floorPrice: stdlib.parseCurrency(1),
+            endConsensusTime: 0,
+            endSecs: secs + 10000
+          })
+        },
         signal: () => {
           console.log("AUCTION CREATED");
         },
@@ -291,15 +299,19 @@ const [, , infile] = process.argv;
       backend.Contractee(ctc2, {}),
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
-        getParams: () => ({
-          token: gil.id,
-          addr: addr,
-          addr2: addr,
-          creator: addr,
-          startPrice: stdlib.parseCurrency(100),
-          floorPrice: stdlib.parseCurrency(1),
-          endConsensusTime: 0,
-        }),
+        getParams: async () => {
+          const secs = await stdlib.getNetworkSecs()
+          return ({
+            token: gil.id,
+            addr: addr,
+            addr2: addr,
+            creator: addr,
+            startPrice: stdlib.parseCurrency(100),
+            floorPrice: stdlib.parseCurrency(10),
+            endConsensusTime: 0,
+            endSecs: secs + 10000
+          })
+        },
         signal: () => {
           console.log("AUCTION CREATED");
         },
@@ -372,15 +384,19 @@ const [, , infile] = process.argv;
       backend.Contractee(ctc2, {}),
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
-        getParams: () => ({
-          token: gil.id,
-          addr: addr,
-          addr2: addr,
-          creator: addr,
-          startPrice: stdlib.parseCurrency(100),
-          floorPrice: stdlib.parseCurrency(1),
-          endConsensusTime: 0,
-        }),
+        getParams: async () => {
+          const secs = await stdlib.getNetworkSecs()
+          return ({
+            token: gil.id,
+            addr: addr,
+            addr2: addr,
+            creator: addr,
+            startPrice: stdlib.parseCurrency(100),
+            floorPrice: stdlib.parseCurrency(10),
+            endConsensusTime: 0,
+            endSecs: secs + 10000
+          })
+        },
         signal: () => {
           console.log("AUCTION CREATED");
         },
