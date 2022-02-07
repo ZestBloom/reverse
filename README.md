@@ -12,12 +12,12 @@ Reverse is a reach app, similar to auction, in which an ASA holder to auction an
 
 ![Reverse2](https://user-images.githubusercontent.com/23183451/152775542-fe924cdc-f296-4410-bb72-0e9cc238c8ca.png)
 
-### Auctioneer
-The Auctioneer sets the auction parameters such as token, start price, and floor price.
-### Depositer
-After the parameters are received from the Auctioneer, the Depoisiter takes over. The depoisiter is the same account as the Auctioneer.
-### Relay
-After the auction is closed. The Relay is that last participant.
+**Auctioneer** sets the auction parameters such as token, start price, and floor price.
+
+**Depositer** Takes after the auctioneer, depositing the token. The depositor is the same account as the Auctioneer.
+
+**Relay** follows after the auction is closed. It is that last participant.
+
 ## Views
 In the views accessible through the contract handle in the frontend, there is 1 named view called Auction.
 ### Auction
