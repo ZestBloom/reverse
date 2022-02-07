@@ -71,12 +71,6 @@ const [, , infile] = process.argv;
 
   const signal = () => {};
 
-  const voteHelper = (ctc) => async (vote) =>
-    ((v) => ctc.a.vote(v))(vote === "yes" ? 1 : 2);
-
-  const getVoteHelper = (ctc) => async (vote) =>
-    stdlib.bigNumberToNumber((await ctc.v[vote]())[1]);
-
   // (1) can be deleted before activation
   console.log("CAN DELETED INACTIVE");
   (async (acc) => {
