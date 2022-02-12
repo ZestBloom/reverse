@@ -442,5 +442,7 @@ const [, , infile] = process.argv;
   await stdlib.wait(4);
   await reset([accAlice, accBob]);
 
+  // TODO add test for end secs timing
+
   process.exit();
 })();
