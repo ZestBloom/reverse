@@ -9,15 +9,15 @@ const [, , infile] = process.argv;
 
   const backend = await import(`./build/${infile}.main.mjs`);
   const stdlib = await loadStdlib();
-  const startingBalance = stdlib.parseCurrency(1000);
+  const startingBalance = stdlib.parseCurrency(2000);
 
   const accAlice = await stdlib.newTestAccount(startingBalance);
   const accBob = await stdlib.newTestAccount(startingBalance);
   const accEve = await stdlib.newTestAccount(startingBalance);
   const accs = await Promise.all(
-    Array.from({ length: 10 }).map(() => stdlib.newTestAccount(startingBalance))
+    Array.from({ length: 10 }).map(() => stdlib.createAccount())
   );
-  //await stdlib.wait(10)
+  await stdlib.wait(10);
 
   const reset = async (accs) => {
     await Promise.all(accs.map(rebalance));
@@ -29,17 +29,17 @@ const [, , infile] = process.argv;
   };
 
   const rebalance = async (acc) => {
-    if ((await getBalance(acc)) > 1000) {
+    if ((await getBalance(acc)) > 2000) {
       await stdlib.transfer(
         acc,
         accEve.networkAccount.addr,
-        stdlib.parseCurrency((await getBalance(acc)) - 1000)
+        stdlib.parseCurrency((await getBalance(acc)) - 2000)
       );
     } else {
       await stdlib.transfer(
         accEve,
         acc.networkAccount.addr,
-        stdlib.parseCurrency(1000 - (await getBalance(acc)))
+        stdlib.parseCurrency(2000 - (await getBalance(acc)))
       );
     }
   };
@@ -105,9 +105,9 @@ const [, , infile] = process.argv;
     console.log(appId);
     let ctc2 = acc2.contract(backend, appId);
     Promise.all([backend.Contractee(ctc2, {})]);
-    await stdlib.wait(50);
+    await stdlib.wait(4);
   })(accAlice, accBob);
-  await stdlib.wait(4);
+  await stdlib.wait(20);
 
   const afterAlice = await getBalance(accAlice);
   const afterBob = await getBalance(accBob);
@@ -144,8 +144,8 @@ const [, , infile] = process.argv;
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
         getParams: async () => {
-          const secs = await stdlib.getNetworkSecs()
-          return ({
+          const secs = await stdlib.getNetworkSecs();
+          return {
             token: gil.id,
             addr: addr,
             addr2: addr,
@@ -153,8 +153,10 @@ const [, , infile] = process.argv;
             startPrice: stdlib.parseCurrency(100),
             floorPrice: stdlib.parseCurrency(10),
             endConsensusTime: 0,
-            endSecs: secs + 10000
-          })
+            endSecs: secs + 10000,
+            addrs: Array.from({ length: 7 }).map((el) => addr),
+            distr: Array.from({ length: 7 }).map((el) => 0),
+          };
         },
         signal: () => {
           console.log("AUCTION CREATED");
@@ -177,8 +179,8 @@ const [, , infile] = process.argv;
     console.log(`current price: ${cp}`);
     assert.equal(await getCurrentPrice(), 100);
     assert.equal(await getClosed(), false);
-    assert.equal(Math.round(await getBalance(accAlice)), 1001);
-    assert.equal(Math.round(await getBalance(accBob)), 999);
+    assert.equal(Math.round(await getBalance(accAlice)), 2001);
+    assert.equal(Math.round(await getBalance(accBob)), 1999);
     assert.equal(
       stdlib.bigNumberToNumber(await stdlib.balanceOf(acc, gil.id)),
       0
@@ -189,8 +191,8 @@ const [, , infile] = process.argv;
     await ctc.a.Bid.acceptOffer();
     console.log(`balance (acc): ${await getBalance(accAlice)}`);
     console.log(`balance (acc2): ${await getBalance(accBob)}`);
-    assert.equal(Math.round(await getBalance(accAlice)), 901);
-    assert.equal(Math.round(await getBalance(accBob)), 1098);
+    assert.equal(Math.round(await getBalance(accAlice)), 1901);
+    assert.equal(Math.round(await getBalance(accBob)), 2099);
     assert.equal(await getClosed(), true);
     assert.equal(
       stdlib.bigNumberToNumber(await stdlib.balanceOf(acc, gil.id)),
@@ -218,8 +220,8 @@ const [, , infile] = process.argv;
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
         getParams: async () => {
-          const secs = await stdlib.getNetworkSecs()
-          return ({
+          const secs = stdlib.bigNumberToNumber(await stdlib.getNetworkSecs());
+          return {
             token: gil.id,
             addr: addr,
             addr2: addr,
@@ -227,8 +229,10 @@ const [, , infile] = process.argv;
             startPrice: stdlib.parseCurrency(100),
             floorPrice: stdlib.parseCurrency(1),
             endConsensusTime: 0,
-            endSecs: secs + 10000
-          })
+            endSecs: secs + 1000,
+            addrs: Array.from({ length: 7 }).map((el) => addr),
+            distr: Array.from({ length: 7 }).map((el) => 0),
+          };
         },
         signal: () => {
           console.log("AUCTION CREATED");
@@ -261,18 +265,19 @@ const [, , infile] = process.argv;
       await ctc.a.Bid.touch();
       let last = cp;
       cp = await getCurrentPrice();
+      console.log(cp);
       if (last !== cp) {
         console.log(`current price: ${cp}`);
       }
     }
     console.log("acc accept offer");
-    assert.equal(Math.round(await getBalance(accAlice)), 1001);
-    assert.equal(Math.round(await getBalance(accBob)), 999);
+    assert.equal(Math.round(await getBalance(accAlice)), 2001);
+    assert.equal(Math.round(await getBalance(accBob)), 1999);
     await ctc.a.Bid.acceptOffer();
     console.log(`balance (acc): ${await getBalance(accAlice)}`);
     console.log(`balance (acc2): ${await getBalance(accBob)}`);
-    assert.equal(Math.round(await getBalance(accAlice)), 1000);
-    assert.equal(Math.round(await getBalance(accBob)), 1000);
+    assert.equal(Math.round(await getBalance(accAlice)), 2000);
+    assert.equal(Math.round(await getBalance(accBob)), 2000);
     assert.equal(await getClosed(), true);
     assert.equal(
       stdlib.bigNumberToNumber(await stdlib.balanceOf(acc, gil.id)),
@@ -300,8 +305,8 @@ const [, , infile] = process.argv;
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
         getParams: async () => {
-          const secs = await stdlib.getNetworkSecs()
-          return ({
+          const secs = stdlib.bigNumberToNumber(await stdlib.getNetworkSecs());
+          return {
             token: gil.id,
             addr: addr,
             addr2: addr,
@@ -309,8 +314,10 @@ const [, , infile] = process.argv;
             startPrice: stdlib.parseCurrency(100),
             floorPrice: stdlib.parseCurrency(10),
             endConsensusTime: 0,
-            endSecs: secs + 10000
-          })
+            endSecs: secs + 1000,
+            addrs: Array.from({ length: 7 }).map((el) => addr),
+            distr: Array.from({ length: 7 }).map((el) => 0),
+          };
         },
         signal: () => {
           console.log("AUCTION CREATED");
@@ -339,8 +346,8 @@ const [, , infile] = process.argv;
     );
     console.log(`balance (acc): ${await getBalance(accAlice)}`);
     console.log(`balance (acc2): ${await getBalance(accBob)}`);
-    assert.equal(Math.round(await getBalance(accAlice)), 1001);
-    assert.equal(Math.round(await getBalance(accBob)), 999);
+    assert.equal(Math.round(await getBalance(accAlice)), 2001);
+    assert.equal(Math.round(await getBalance(accBob)), 1999);
     while (cp > 1) {
       await ctc.a.Bid.touch();
       if (Math.random() > 0.8) {
@@ -385,8 +392,8 @@ const [, , infile] = process.argv;
       backend.Auctioneer(ctc2, {
         ...stdlib.hasConsoleLogger,
         getParams: async () => {
-          const secs = await stdlib.getNetworkSecs()
-          return ({
+          const secs = stdlib.bigNumberToNumber(await stdlib.getNetworkSecs());
+          return {
             token: gil.id,
             addr: addr,
             addr2: addr,
@@ -394,8 +401,10 @@ const [, , infile] = process.argv;
             startPrice: stdlib.parseCurrency(100),
             floorPrice: stdlib.parseCurrency(10),
             endConsensusTime: 0,
-            endSecs: secs + 10000
-          })
+            endSecs: secs + 1000,
+            addrs: Array.from({ length: 7 }).map((el) => addr),
+            distr: Array.from({ length: 7 }).map((el) => 0),
+          };
         },
         signal: () => {
           console.log("AUCTION CREATED");
@@ -436,13 +445,117 @@ const [, , infile] = process.argv;
     );
     console.log(`balance (acc): ${await getBalance(accAlice)}`);
     console.log(`balance (acc2): ${await getBalance(accBob)}`);
-    assert.equal(Math.round(await getBalance(accAlice)), 999);
-    assert.equal(Math.round(await getBalance(accBob)), 1001);
+    assert.equal(Math.round(await getBalance(accAlice)), 1999);
+    assert.equal(Math.round(await getBalance(accBob)), 2001);
   })(accBob, accAlice); // switch to prevent bignumber to number overflow
   await stdlib.wait(4);
   await reset([accAlice, accBob]);
 
   // TODO add test for end secs timing
+  // TODO add test for payouts
+
+  console.log("CAN SPLIT PAYMENT");
+  try {
+    await (async (acc, acc2) => {
+      let addr = acc.networkAccount.addr;
+      let ctc = acc.contract(backend);
+      Promise.all([
+        backend.Constructor(ctc, {
+          getParams: () => getParams(addr),
+          signal,
+        }),
+      ]);
+      let appId = await ctc.getInfo();
+      console.log(appId);
+      let ctc2 = acc2.contract(backend, appId);
+      Promise.all([
+        backend.Contractee(ctc2, {}),
+        backend.Auctioneer(ctc2, {
+          ...stdlib.hasConsoleLogger,
+          getParams: async () => {
+            const secs = stdlib.bigNumberToNumber(
+              await stdlib.getNetworkSecs()
+            );
+            return {
+              token: gil.id,
+              addr: addr,
+              addr2: addr,
+              creator: addr,
+              startPrice: stdlib.parseCurrency(2000),
+              floorPrice: stdlib.parseCurrency(1000),
+              endConsensusTime: 0,
+              endSecs: secs + 2500,
+              addrs: accs.slice(0, 7).map((el) => el.networkAccount.addr),
+              //addrs: Array.from({length: 7}).map(el => addr), // addr
+              distr: Array.from({ length: 7 }).map((el) => 1000), // 0.01
+            };
+          },
+          signal: () => {
+            console.log("AUCTION CREATED");
+          },
+          close: () => {},
+        }),
+        backend.Depositer(ctc2, {
+          ...stdlib.hasConsoleLogger,
+          signal: () => {
+            console.log("TOKEN DEPOSITED");
+          },
+        }),
+      ]);
+      await stdlib.wait(100);
+      const getCurrentPrice = async () =>
+        stdlib.formatCurrency((await ctc2.v.Auction.currentPrice())[1]);
+      const getClosed = async () => (await ctc2.v.Auction.closed())[1] || false;
+
+      let cp = await getCurrentPrice();
+      console.log(`current price: ${cp}`);
+      assert.equal(await getCurrentPrice(), 2000);
+      assert.equal(await getClosed(), false);
+      assert.equal(
+        stdlib.bigNumberToNumber(await stdlib.balanceOf(acc, gil.id)),
+        3
+      );
+      console.log(`balance (acc): ${await getBalance(accAlice)}`);
+      console.log(`balance (acc2): ${await getBalance(accBob)}`);
+      while (cp > 1000) {
+        await ctc.a.Bid.touch();
+        let last = cp;
+        cp = await getCurrentPrice();
+        console.log(cp);
+        if (last !== cp) {
+          console.log(`current price: ${cp}`);
+        }
+      }
+      console.log("acc accept offer");
+      assert.equal(Math.round(await getBalance(accAlice)), 2001);
+      assert.equal(Math.round(await getBalance(accBob)), 1999);
+      await ctc.a.Bid.acceptOffer();
+      console.log(`balance (acc): ${await getBalance(accAlice)}`);
+      console.log(`balance (acc2): ${await getBalance(accBob)}`);
+      await backend.Relay(ctc, {})
+      /*
+    assert.equal(Math.round(await getBalance(accAlice)), 1300);
+    assert.equal(Math.round(await getBalance(accBob)), 2000);
+    assert.equal(await getClosed(), true);
+    assert.equal(
+      stdlib.bigNumberToNumber(await stdlib.balanceOf(acc, gil.id)),
+      2
+    );
+    */
+    })(accAlice, accBob);
+  } catch (e) {}
+
+  await stdlib.wait(100);
+  //await reset([accAlice, accBob]);
+
+  for (let i = 0; i < 10; i++) {
+    console.log(
+      `balance (accs[${i}]): ${stdlib.formatCurrency(
+        await stdlib.balanceOf(accs[i]),
+        6
+      )}`
+    );
+  }
 
   process.exit();
 })();

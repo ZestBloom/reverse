@@ -3,8 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.2.2 - use fixed point artithmetic
-//                  in price func
+// Version: 0.3.0 - add distribution array
 // Requires Reach v0.1.7
 // -----------------------------------------------
 // FUNCS
@@ -12,7 +11,7 @@ import { max, min } from "@nash-protocol/starter-kit:util.rsh";
 /*
  * precision used in fixed point arithmetic
  */
-const precision = 1000000;
+const precision = 1000000; // 10 ^ 6
 /*
  * calculate price based on seconds elapsed since reference secs
  */
@@ -21,11 +20,19 @@ const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
     floorPrice,
     ((diff) => (startPrice <= diff ? floorPrice : startPrice - diff))(
       min(
-        ((lastConsensusSecs() - referenceConcensusSecs) * dk) / pre,
+        ((lastConsensusSecs() - referenceConcensusSecs) * dk) / precision,
         startPrice - floorPrice
       )
     )
   );
+const royaltyc = 10000; // 100%
+const percent = (c, i, p) => {
+  const fD = fx(6)(Pos, i);
+  const fD2 = fx(6)(Pos, c);
+  return fxdiv(fD, fD2, p);
+};
+const payout = (amt, d) =>
+  fxmul(fx(6)(Pos, amt), percent(royaltyc, d, precision)).i.i / precision;
 // INTERACTS
 const common = {
   ...hasConsoleLogger,
@@ -52,6 +59,8 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
+      addrs: Array(Address, 7),
+      distr: Array(UInt, 7),
     })
   ),
 };
@@ -82,10 +91,8 @@ export const Api = () => [
 export const App = (map) => {
   const [
     {
-      addr, // discovery
-      addr2, // platform
-      // TODO add royalties
-      //addr3, // creator
+      addr: discovery, // discovery/zip address
+      //addr2: platform, // platform
     },
     { tok },
     [Relay, Depositer, Auctioneer],
@@ -96,19 +103,47 @@ export const App = (map) => {
   // Auctioneer publishes prarams and deposits token
   // ---------------------------------------------
   Auctioneer.only(() => {
-    const { token, startPrice, floorPrice, endSecs } = declassify(
-      interact.getParams()
-    );
+    const {
+      token,
+      startPrice,
+      floorPrice,
+      endSecs,
+      addrs,
+      distr
+    } = declassify(interact.getParams());
     assume(floorPrice > 0);
     assume(floorPrice < startPrice);
     assume(tok !== token);
     assume(endSecs > 0);
+    assume(distr.sum() <= 10000);
   });
-  Auctioneer.publish(token, startPrice, floorPrice, endSecs).pay(100000); // 0.1 ALGO from auctioneer
+  Auctioneer.publish(
+    token,
+    startPrice,
+    floorPrice,
+    endSecs,
+    addrs,
+    distr
+  ).pay(100000); // 0.1 ALGO from auctioneer
   require(floorPrice > 0);
   require(floorPrice < startPrice);
   require(tok != token);
   require(endSecs > 0);
+  require(distr.sum() <= 10000);
+
+  /*
+  const [
+    platform,
+    _,
+    _,
+    _,
+    _,
+    _,
+    _,
+    _,
+    _,
+  ] = addrs
+  */
 
   Auction.startPrice.set(startPrice);
   Auction.floorPrice.set(floorPrice);
@@ -120,7 +155,7 @@ export const App = (map) => {
 
   // Auctioneer done
 
-  transfer(100000).to(addr); // 0.1 ALGO to discovery
+  transfer(100000).to(discovery); // 0.1 ALGO to discovery
 
   Depositer.set(Auctioneer);
 
@@ -173,10 +208,19 @@ export const App = (map) => {
       (k) => {
         require(true);
         k(null);
-        const cent = balance() / 100;
-        const platformAmount = cent;
-        const recvAmount = balance() - platformAmount;
-        transfer(recvAmount).to(Auctioneer);
+        const distrTake = distr
+          .slice(0, 2)
+          .map((el) => payout(currentPrice, el))
+          .sum();
+        const distrTake2 = distr
+          .slice(2, 5)
+          .sum()
+        const standardTake = currentPrice / royaltyc
+        const sellerTake = currentPrice - distrTake - standardTake * distrTake2
+        transfer(payout(currentPrice, distr[0])).to(addrs[0])
+        transfer(payout(currentPrice, distr[1])).to(addrs[1])
+        transfer(standardTake * distr[2]).to(addrs[2]);
+        transfer(sellerTake).to(Auctioneer);
         transfer([[balance(token), token]]).to(this);
         return [false, currentPrice];
       }
@@ -196,9 +240,19 @@ export const App = (map) => {
   Auction.closed.set(true); // Set View Closed
   commit();
   Relay.publish();
-  transfer(balance()).to(addr2);
-  transfer([[balance(token), token]]).to(addr2);
-  transfer([[balance(tok), tok]]).to(addr2);
+  const remaining = balance();
+  const distrTake = distr
+    .slice(3, 4)
+    .sum()
+  const standardTake = currentPrice / royaltyc
+  const recvAmount = remaining - standardTake * distrTake
+  transfer(standardTake * distr[3]).to(addrs[3]);
+  transfer(standardTake * distr[4]).to(addrs[4]);
+  transfer(standardTake * distr[5]).to(addrs[5]);
+  transfer(standardTake * distr[6]).to(addrs[6]);
+  transfer(recvAmount).to(addrs[0]);
+  transfer([[balance(token), token]]).to(addrs[0]);
+  transfer([[balance(tok), tok]]).to(addrs[0]);
   commit();
   exit();
 };
