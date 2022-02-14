@@ -6,12 +6,16 @@
 // Version: 0.3.1 - use royalty cap
 // Requires Reach v0.1.7
 // -----------------------------------------------
+
 // FUNCS
+
 import { max, min } from "@nash-protocol/starter-kit:util.rsh";
+
 /*
  * precision used in fixed point arithmetic
  */
 const precision = 1000000; // 10 ^ 6
+
 /*
  * calculate price based on seconds elapsed since reference secs
  */
@@ -37,6 +41,7 @@ const percent = (c, i, p) => {
   const fD2 = fx(6)(Pos, c);
   return fxdiv(fD, fD2, p);
 };
+
 /*
  * calulate payout
  * amt - amount to split
@@ -44,21 +49,27 @@ const percent = (c, i, p) => {
  */
 const payout = (rc, amt, d) =>
   fxmul(fx(6)(Pos, amt), percent(rc, d, precision)).i.i / precision
+
 // INTERACTS
+
 const common = {
   ...hasConsoleLogger,
   close: Fun([], Null),
 };
+
 const hasSignal = {
   signal: Fun([], Null),
 };
+
 const relayInteract = {
   ...common,
 };
+
 const depositerInteract = {
   ...common,
   ...hasSignal,
 };
+
 const auctioneerInteract = {
   ...common,
   ...hasSignal,
@@ -76,12 +87,15 @@ const auctioneerInteract = {
     })
   ),
 };
+
 // PARTICIPANTS
+
 export const Participants = () => [
   Participant("Relay", relayInteract),
   Participant("Depositer", depositerInteract),
   Participant("Auctioneer", auctioneerInteract),
 ];
+
 export const Views = () => [
   View("Auction", {
     token: Token,
@@ -93,6 +107,7 @@ export const Views = () => [
     priceChangePerSec: UInt,
   }),
 ];
+
 export const Api = () => [
   API("Bid", {
     touch: Fun([], Null),
@@ -100,6 +115,7 @@ export const Api = () => [
     cancel: Fun([], Null),
   }),
 ];
+
 export const App = (map) => {
   const [
     {
