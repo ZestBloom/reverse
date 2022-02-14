@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.3.0 - add distribution array
+// Version: 0.3.1 - use royalty cap
 // Requires Reach v0.1.7
 // -----------------------------------------------
 // FUNCS
@@ -25,14 +25,25 @@ const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
       )
     )
   );
-const royaltyc = 10000; // 100%
+
+/*
+ * caculate percent
+ * c - cap
+ * i - part
+ * p - precision
+ */
 const percent = (c, i, p) => {
   const fD = fx(6)(Pos, i);
   const fD2 = fx(6)(Pos, c);
   return fxdiv(fD, fD2, p);
 };
-const payout = (amt, d) =>
-  fxmul(fx(6)(Pos, amt), percent(royaltyc, d, precision)).i.i / precision;
+/*
+ * calulate payout
+ * amt - amount to split
+ * d - distribution [0,10000]
+ */
+const payout = (rc, amt, d) =>
+  fxmul(fx(6)(Pos, amt), percent(rc, d, precision)).i.i / precision
 // INTERACTS
 const common = {
   ...hasConsoleLogger,
@@ -59,8 +70,9 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
-      addrs: Array(Address, 7),
-      distr: Array(UInt, 7),
+      addrs: Array(Address, 5),
+      distr: Array(UInt, 5),
+      royaltyCap: UInt
     })
   ),
 };
@@ -103,33 +115,25 @@ export const App = (map) => {
   // Auctioneer publishes prarams and deposits token
   // ---------------------------------------------
   Auctioneer.only(() => {
-    const {
-      token,
-      startPrice,
-      floorPrice,
-      endSecs,
-      addrs,
-      distr
-    } = declassify(interact.getParams());
+    const { token, startPrice, floorPrice, endSecs, addrs, distr, royaltyCap } = declassify(
+      interact.getParams()
+    );
     assume(floorPrice > 0);
     assume(floorPrice < startPrice);
     assume(tok !== token);
     assume(endSecs > 0);
-    assume(distr.sum() <= 10000);
+    assume(distr.sum() <= royaltyCap);
+    assume(royaltyCap == 10 * floorPrice / 1000000);
   });
-  Auctioneer.publish(
-    token,
-    startPrice,
-    floorPrice,
-    endSecs,
-    addrs,
-    distr
-  ).pay(100000); // 0.1 ALGO from auctioneer
+  Auctioneer.publish(token, startPrice, floorPrice, endSecs, addrs, distr, royaltyCap).pay(
+    100000
+  ); // 0.1 ALGO from auctioneer
   require(floorPrice > 0);
   require(floorPrice < startPrice);
   require(tok != token);
   require(endSecs > 0);
-  require(distr.sum() <= 10000);
+  require(distr.sum() <= royaltyCap);
+  require(royaltyCap == 10 * floorPrice / 1000000);
 
   /*
   const [
@@ -208,18 +212,13 @@ export const App = (map) => {
       (k) => {
         require(true);
         k(null);
+        const partTake = currentPrice / royaltyCap
         const distrTake = distr
-          .slice(0, 2)
-          .map((el) => payout(currentPrice, el))
-          .sum();
-        const distrTake2 = distr
-          .slice(2, 5)
+          .slice(0,5)
           .sum()
-        const standardTake = currentPrice / royaltyc
-        const sellerTake = currentPrice - distrTake - standardTake * distrTake2
-        transfer(payout(currentPrice, distr[0])).to(addrs[0])
-        transfer(payout(currentPrice, distr[1])).to(addrs[1])
-        transfer(standardTake * distr[2]).to(addrs[2]);
+        const sellerTake = currentPrice - partTake * distrTake
+        transfer(partTake * distr[0]).to(addrs[0]);
+        transfer(partTake * distr[1]).to(addrs[1]);
         transfer(sellerTake).to(Auctioneer);
         transfer([[balance(token), token]]).to(this);
         return [false, currentPrice];
@@ -240,16 +239,14 @@ export const App = (map) => {
   Auction.closed.set(true); // Set View Closed
   commit();
   Relay.publish();
-  const remaining = balance();
+  const partTake = currentPrice / royaltyCap
   const distrTake = distr
-    .slice(3, 4)
+    .slice(2,3)
     .sum()
-  const standardTake = currentPrice / royaltyc
-  const recvAmount = remaining - standardTake * distrTake
-  transfer(standardTake * distr[3]).to(addrs[3]);
-  transfer(standardTake * distr[4]).to(addrs[4]);
-  transfer(standardTake * distr[5]).to(addrs[5]);
-  transfer(standardTake * distr[6]).to(addrs[6]);
+  const recvAmount = balance() - partTake * distrTake
+  transfer(partTake * distr[2]).to(addrs[2]);
+  transfer(partTake * distr[3]).to(addrs[3]);
+  transfer(partTake * distr[4]).to(addrs[4]);
   transfer(recvAmount).to(addrs[0]);
   transfer([[balance(token), token]]).to(addrs[0]);
   transfer([[balance(tok), tok]]).to(addrs[0]);
