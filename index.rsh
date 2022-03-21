@@ -7,7 +7,7 @@
 // Version: 0.0.2 - rename symbol
 // Requires Reach v0.1.7 (stable)
 // ----------------------------------------------
-import { useConstructor } from '@nash-protocol/starter-kit:util.rsh'
+import { useConstructor } from '@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh'
 import { 
   Participants as AppParticipants,
   Views as AppViews, 
