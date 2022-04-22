@@ -1,3 +1,7 @@
 build
 reach
 .reach
+node_modules
+package.json
+test.sh
+yarn.lock

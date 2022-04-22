@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.3.1 - use royalty cap
+// Version: 0.4.1 - add setup timeouts
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
@@ -67,6 +67,8 @@ const auctioneerInteract = {
   getParams: Fun(
     [],
     Object({
+      tokenAmount: UInt, // NFT token amount
+      rewardAmount: UInt, // 1 ALGO
       token: Token, // NFT token
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
@@ -110,8 +112,19 @@ export const App = (map) => {
   const [[Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
 
   Auctioneer.only(() => {
-    const { token, startPrice, floorPrice, endSecs, addrs, distr, royaltyCap } =
-      declassify(interact.getParams());
+    const {
+      token,
+      tokenAmount,
+      rewardAmount,
+      startPrice,
+      floorPrice,
+      endSecs,
+      addrs,
+      distr,
+      royaltyCap,
+    } = declassify(interact.getParams());
+    assume(tokenAmount > 0);
+    assume(rewardAmount > 0);
     assume(floorPrice > 0);
     assume(floorPrice < startPrice);
     assume(endSecs > 0);
@@ -120,32 +133,27 @@ export const App = (map) => {
   });
   Auctioneer.publish(
     token,
+    tokenAmount,
+    rewardAmount,
     startPrice,
     floorPrice,
     endSecs,
     addrs,
     distr,
     royaltyCap
-  );
+  ).timeout(relativeTime(100), () => {
+    Anybody.publish();
+    commit();
+    exit();
+  });
+
+  require(tokenAmount > 0);
+  require(rewardAmount > 0);
   require(floorPrice > 0);
   require(floorPrice < startPrice);
   require(endSecs > 0);
   require(distr.sum() <= royaltyCap);
   require(royaltyCap == (10 * floorPrice) / 1000000);
-
-  /*
-  const [
-    platform,
-    _,
-    _,
-    _,
-    _,
-    _,
-    _,
-    _,
-    _,
-  ] = addrs
-  */
 
   Auction.startPrice.set(startPrice);
   Auction.floorPrice.set(floorPrice);
@@ -159,7 +167,12 @@ export const App = (map) => {
 
   commit();
 
-  Depositer.pay([0, [1, token]]); // TODO allow token amt to be set in params
+  Depositer.pay([rewardAmount, [tokenAmount, token]])
+  .timeout(relativeTime(100), () => {
+    Anybody.publish();
+    commit();
+    exit();
+  });; 
 
   // Depositer done
 
@@ -175,7 +188,7 @@ export const App = (map) => {
     .define(() => {
       Auction.currentPrice.set(currentPrice);
     })
-    .invariant(balance() >= 0)
+    .invariant(balance() >= rewardAmount)
     .while(keepGoing)
     .api(
       Bid.touch,
@@ -224,12 +237,12 @@ export const App = (map) => {
   Relay.publish();
   const partTake = currentPrice / royaltyCap;
   const distrTake = distr.slice(2, 3).sum();
-  const recvAmount = balance() - partTake * distrTake;
+  const recvAmount = balance() - partTake * distrTake; // REM includes reward amount
   transfer(partTake * distr[2]).to(addrs[2]);
   transfer(partTake * distr[3]).to(addrs[3]);
   transfer(partTake * distr[4]).to(addrs[4]);
-  transfer(recvAmount).to(addrs[0]);
-  transfer([[balance(token), token]]).to(addrs[0]);
+  transfer(recvAmount).to(Relay);
+  transfer([[balance(token), token]]).to(Relay);
   commit();
   exit();
 };
