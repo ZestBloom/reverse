@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.4.2 - fix cancel, add seller addr
+// Version: 0.4.3 - mutate
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
@@ -173,7 +173,7 @@ export const App = (map) => {
   commit();
 
   Depositer.pay([rewardAmount, [tokenAmount, token]])
-  .timeout(relativeTime(100), () => {
+  .timeout(relativeTime(100+1), () => { // REM mutation
     Anybody.publish();
     commit();
     exit();
