@@ -1,11 +1,18 @@
-export REACH_VERSION=78dbf873 # v0.1.9-rc4
-#API_ENDPOINT_TESTNET="https://launcher.testnet.zestbloom.com"
-#API_ENDPOINT_TESTNET="http://localhost:5001"
-#API_ENDPOINT_TESTNET="http://localhost:5002"
-#API_ENDPOINT_TESTNET="https://algoapiv1.herokuapp.com"
-#API_ENDPOINT_TESTNET="https://launcher.testnet.zestbloom.com"
-API_ENDPOINT_TESTNET="https://launcher.402c3faa.testnet.zestbloom.com"
-TEMPLATE_NAME='lite'
+test -f ".env" && {
+  echo reading config file...
+  source ".env"
+  # TODO tests
+true
+} || {
+  cat << EOF
+[WARNING] missing .env file
+EOF
+}
+read -t 5 || true
+config() {
+  # config env file
+  true
+}
 update() {
   # download latest script
   # clean install
@@ -20,11 +27,12 @@ connector () {
         local i=$( grep -n ${1} -e _ALGO | head -1 | cut '-d:' '-f1' ) 
         local n=$(( $( grep -n ${1} -e _ETH | head -1 | cut '-d:' '-f1' ) - 1 )) 
         sed -n "${i},${n}p" ${1}
-        echo "console.log(JSON.stringify({ALGO:_ALGO, template: '${TEMPLATE_NAME}'}))"
+        echo "console.log(JSON.stringify({ALGO:_ALGO, template: '${TEMPLATE_NAME:-lite}'}))"
 }
 compile () {
-	./reach compile ${infile:-index}.rsh --install-pkgs
-	./reach compile ${infile:-index}.rsh "${@}"
+        echo "${REACH_VERSION}"
+        ./reach compile ${infile:-index}.rsh --install-pkgs
+        ./reach compile ${infile:-index}.rsh "${@}"
 }
 eject () {
         _ () {
@@ -48,7 +56,7 @@ v2-launch() {
 }
 v2-apps() {
   local plan_id="${1}"
-  curl "${API_ENDPOINT_TESTNET}/api/v2/apps?planId=${plan_id}" -H 'Content-Type: application/json' 
+  curl "${API_ENDPOINT_TESTNET}/api/v2/apps?planId=${plan_id}" -H 'Content-Type: application/json'
 }
 v2-verify() {
   local plan_id="${1}"

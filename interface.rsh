@@ -3,7 +3,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.4.1 - add setup timeouts
+// Version: 0.4.2 - fix cancel, add seller addr
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
@@ -61,7 +61,9 @@ const calc = (d, d2, p) => {
 
 const relayInteract = {};
 
-const depositerInteract = {};
+const depositerInteract = {
+  signal: Fun([], Null)
+};
 
 const auctioneerInteract = {
   getParams: Fun(
@@ -97,6 +99,7 @@ export const Views = () => [
     closed: Bool,
     endSecs: UInt,
     priceChangePerSec: UInt,
+    seller: Address
   }),
 ];
 
@@ -109,13 +112,13 @@ export const Api = () => [
 ];
 
 export const App = (map) => {
-  const [[Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
+  const [_, [Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
 
   Auctioneer.only(() => {
     const {
-      token,
       tokenAmount,
       rewardAmount,
+      token,
       startPrice,
       floorPrice,
       endSecs,
@@ -141,7 +144,8 @@ export const App = (map) => {
     addrs,
     distr,
     royaltyCap
-  ).timeout(relativeTime(100), () => {
+  )
+  .timeout(relativeTime(100), () => {
     Anybody.publish();
     commit();
     exit();
@@ -160,6 +164,7 @@ export const App = (map) => {
   Auction.endSecs.set(endSecs);
   Auction.token.set(token);
   Auction.closed.set(false);
+  Auction.seller.set(Auctioneer);
 
   // Auctioneer done
 
@@ -173,6 +178,8 @@ export const App = (map) => {
     commit();
     exit();
   });; 
+
+  Depositer.interact.signal();
 
   // Depositer done
 
@@ -228,7 +235,7 @@ export const App = (map) => {
         require(this === Auctioneer);
         k(null);
         transfer([[balance(token), token]]).to(this);
-        return [false, currentPrice];
+        return [false, 0];
       }
     )
     .timeout(false);
