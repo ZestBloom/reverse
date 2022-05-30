@@ -129,7 +129,7 @@ export const App = (map) => {
     assume(tokenAmount > 0);
     assume(rewardAmount > 0);
     assume(floorPrice > 0);
-    assume(floorPrice < startPrice);
+    assume(floorPrice <= startPrice); // REM allow start eq floor for sale
     assume(endSecs > 0);
     assume(distr.sum() <= royaltyCap);
     assume(royaltyCap == (10 * floorPrice) / 1000000);
@@ -154,10 +154,10 @@ export const App = (map) => {
   require(tokenAmount > 0);
   require(rewardAmount > 0);
   require(floorPrice > 0);
-  require(floorPrice < startPrice);
+  require(floorPrice <= startPrice); // REM allow start eq floor for sale
   require(endSecs > 0);
   require(distr.sum() <= royaltyCap);
-  require(royaltyCap == (10 * floorPrice) / 1000000);
+  require(royaltyCap == (10 * floorPrice) / 1000000); // REM / 1000000 is to convert floorPrice from ALGO AUs
 
   Auction.startPrice.set(startPrice);
   Auction.floorPrice.set(floorPrice);
