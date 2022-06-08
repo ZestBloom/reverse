@@ -1,5 +1,6 @@
 "reach 0.1";
 "use strict";
+
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
@@ -8,6 +9,8 @@
 // -----------------------------------------------
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
+
+const DIST_LENGTH = 10;
 
 // FUNCS
 
@@ -75,8 +78,8 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
-      addrs: Array(Address, 5),
-      distr: Array(UInt, 5),
+      addrs: Array(Address, DIST_LENGTH),
+      distr: Array(UInt, DIST_LENGTH),
       royaltyCap: UInt,
     })
   ),
@@ -87,11 +90,12 @@ const auctioneerInteract = {
 export const Participants = () => [
   Participant("Auctioneer", auctioneerInteract),
   Participant("Depositer", depositerInteract),
-  Participant("Relay", relayInteract),
+  ParticipantClass("Relay", relayInteract)
 ];
 
 export const Views = () => [
   View("Auction", {
+    manager: Address, // Standard View: Manager Address 
     token: Token,
     currentPrice: UInt,
     startPrice: UInt,
@@ -112,7 +116,7 @@ export const Api = () => [
 ];
 
 export const App = (map) => {
-  const [_, [Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
+  const [[addr, _, addr2], [Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
 
   Auctioneer.only(() => {
     const {
@@ -126,10 +130,11 @@ export const App = (map) => {
       distr,
       royaltyCap,
     } = declassify(interact.getParams());
+    assume(this == addr2);
     assume(tokenAmount > 0);
     assume(rewardAmount > 0);
     assume(floorPrice > 0);
-    assume(floorPrice < startPrice);
+    assume(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
     assume(endSecs > 0);
     assume(distr.sum() <= royaltyCap);
     assume(royaltyCap == (10 * floorPrice) / 1000000);
@@ -151,22 +156,15 @@ export const App = (map) => {
     exit();
   });
 
+  require(Auctioneer == addr2);
   require(tokenAmount > 0);
   require(rewardAmount > 0);
   require(floorPrice > 0);
-  require(floorPrice < startPrice);
+  require(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
   require(endSecs > 0);
   require(distr.sum() <= royaltyCap);
   require(royaltyCap == (10 * floorPrice) / 1000000);
 
-  Auction.startPrice.set(startPrice);
-  Auction.floorPrice.set(floorPrice);
-  Auction.endSecs.set(endSecs);
-  Auction.token.set(token);
-  Auction.closed.set(false);
-  Auction.seller.set(Auctioneer);
-
-  // Auctioneer done
 
   Depositer.set(Auctioneer);
 
@@ -178,6 +176,13 @@ export const App = (map) => {
     commit();
     exit();
   });; 
+
+  Auction.startPrice.set(startPrice);
+  Auction.floorPrice.set(floorPrice);
+  Auction.endSecs.set(endSecs);
+  Auction.token.set(token);
+  Auction.closed.set(false);
+  Auction.seller.set(Auctioneer);
 
   Depositer.interact.signal();
 
@@ -217,11 +222,12 @@ export const App = (map) => {
       (k) => {
         require(true);
         k(null);
-        const partTake = currentPrice / royaltyCap;
-        const distrTake = distr.slice(0, 5).sum();
-        const sellerTake = currentPrice - partTake * distrTake;
+        const cent = currentPrice / 100;
+        const partTake = (currentPrice - cent) / royaltyCap;
+        const distrTake = distr.slice(0, DIST_LENGTH).sum();
+        const sellerTake = currentPrice - cent - partTake * distrTake;
+        transfer(cent).to(addr);
         transfer(partTake * distr[0]).to(addrs[0]);
-        transfer(partTake * distr[1]).to(addrs[1]);
         transfer(sellerTake).to(Auctioneer);
         transfer([[balance(token), token]]).to(this);
         return [false, currentPrice];
@@ -242,14 +248,29 @@ export const App = (map) => {
   Auction.closed.set(true); // Set View Closed
   commit();
   Relay.publish();
-  const partTake = currentPrice / royaltyCap;
-  const distrTake = distr.slice(2, 3).sum();
+  const cent = currentPrice / 100;
+  const partTake = (currentPrice - cent) / royaltyCap;
+  const distrTake = distr.slice(1, DIST_LENGTH-1).sum();
   const recvAmount = balance() - partTake * distrTake; // REM includes reward amount
+  transfer(partTake * distr[1]).to(addrs[1]);
   transfer(partTake * distr[2]).to(addrs[2]);
   transfer(partTake * distr[3]).to(addrs[3]);
+  commit();
+  Relay.publish();
   transfer(partTake * distr[4]).to(addrs[4]);
-  transfer(recvAmount).to(Relay);
-  transfer([[balance(token), token]]).to(Relay);
+  transfer(partTake * distr[5]).to(addrs[5]);
+  transfer(partTake * distr[6]).to(addrs[6]);
+  commit();
+  Relay.only(() => {
+    const rAddr = this;
+  })
+  Relay.publish(rAddr);
+  transfer(partTake * distr[7]).to(addrs[7]);
+  transfer(partTake * distr[8]).to(addrs[8]);
+  transfer(partTake * distr[9]).to(addrs[9]);
+  transfer(recvAmount).to(rAddr);
+
+  transfer([[balance(token), token]]).to(rAddr);
   commit();
   exit();
 };
