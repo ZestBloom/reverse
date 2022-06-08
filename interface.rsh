@@ -10,6 +10,8 @@
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
+const DIST_LENGTH = 10;
+
 // FUNCS
 
 /*
@@ -76,8 +78,8 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
-      addrs: Array(Address, 5),
-      distr: Array(UInt, 5),
+      addrs: Array(Address, DIST_LENGTH),
+      distr: Array(UInt, DIST_LENGTH),
       royaltyCap: UInt,
     })
   ),
@@ -88,7 +90,7 @@ const auctioneerInteract = {
 export const Participants = () => [
   Participant("Auctioneer", auctioneerInteract),
   Participant("Depositer", depositerInteract),
-  Participant("Relay", relayInteract),
+  ParticipantClass("Relay", relayInteract)
 ];
 
 export const Views = () => [
@@ -222,7 +224,7 @@ export const App = (map) => {
         k(null);
         const cent = currentPrice / 100;
         const partTake = (currentPrice - cent) / royaltyCap;
-        const distrTake = distr.slice(0, 5).sum();
+        const distrTake = distr.slice(0, DIST_LENGTH).sum();
         const sellerTake = currentPrice - cent - partTake * distrTake;
         transfer(cent).to(addr);
         transfer(partTake * distr[0]).to(addrs[0]);
@@ -248,14 +250,27 @@ export const App = (map) => {
   Relay.publish();
   const cent = currentPrice / 100;
   const partTake = (currentPrice - cent) / royaltyCap;
-  const distrTake = distr.slice(1, 4).sum();
+  const distrTake = distr.slice(1, DIST_LENGTH-1).sum();
   const recvAmount = balance() - partTake * distrTake; // REM includes reward amount
   transfer(partTake * distr[1]).to(addrs[1]);
   transfer(partTake * distr[2]).to(addrs[2]);
   transfer(partTake * distr[3]).to(addrs[3]);
+  commit();
+  Relay.publish();
   transfer(partTake * distr[4]).to(addrs[4]);
-  transfer(recvAmount).to(Relay);
-  transfer([[balance(token), token]]).to(Relay);
+  transfer(partTake * distr[5]).to(addrs[5]);
+  transfer(partTake * distr[6]).to(addrs[6]);
+  commit();
+  Relay.only(() => {
+    const rAddr = this;
+  })
+  Relay.publish(rAddr);
+  transfer(partTake * distr[7]).to(addrs[7]);
+  transfer(partTake * distr[8]).to(addrs[8]);
+  transfer(partTake * distr[9]).to(addrs[9]);
+  transfer(recvAmount).to(rAddr);
+
+  transfer([[balance(token), token]]).to(rAddr);
   commit();
   exit();
 };
