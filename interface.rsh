@@ -8,7 +8,7 @@
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
-const SERIAL_VER = 1;
+const SERIAL_VER = 0;
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
@@ -75,9 +75,13 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
-      addrs: Array(Address, DIST_LENGTH),
-      distr: Array(UInt, DIST_LENGTH),
-      royaltyCap: UInt,
+      // -----------------------------------------
+      // Royalties
+      // -----------------------------------------
+      //addrs: Array(Address, DIST_LENGTH),
+      //distr: Array(UInt, DIST_LENGTH),
+      //royaltyCap: UInt,
+      // -----------------------------------------
     })
   ),
   signal: Fun([], Null),
@@ -93,27 +97,34 @@ export const Participants = () => [
 export const Views = () => [
   View({
     manager: Address, // Standard View: Manager Address
-    token: Token,
-    currentPrice: UInt,
-    startPrice: UInt,
-    floorPrice: UInt,
-    closed: Bool,
-    endSecs: UInt,
-    priceChangePerSec: UInt,
-    seller: Address,
+    token: Token, // Asset Token
+    tokenP: Token, // Payment Token
+    currentPrice: UInt, // Current Price
+    startPrice: UInt, // Start Price
+    floorPrice: UInt, // Floor Price
+    closed: Bool, // Closed
+    endSecs: UInt, // End Seconds
+    priceChangePerSec: UInt, // Price Change Per Second
   }),
 ];
 
 export const Api = () => [
   API({
-    touch: Fun([], Null),
-    acceptOffer: Fun([], Null),
-    cancel: Fun([], Null),
+    touch: Fun([], Null), // Touch
+    acceptOffer: Fun([], Null), // Accept Offer
+    cancel: Fun([], Null), // Cancel
   }),
 ];
 
 export const App = (map) => {
-  const [{ amt, ttl, tok0: token }, [addr, _], [Auctioneer, Relay], [v], [a], _] = map;
+  const [
+    { amt, ttl, tok0: token, tok1: tokenP },
+    [addr, _],
+    [Auctioneer, Relay],
+    [v],
+    [a],
+    _,
+  ] = map;
   Auctioneer.only(() => {
     const {
       tokenAmount,
@@ -121,27 +132,39 @@ export const App = (map) => {
       startPrice,
       floorPrice,
       endSecs,
-      addrs,
-      distr,
-      royaltyCap,
+      // -----------------------------------------
+      // Royalties
+      // -----------------------------------------
+      //addrs,
+      //distr,
+      //royaltyCap,
+      // -----------------------------------------
     } = declassify(interact.getParams());
     assume(tokenAmount > 0);
     assume(rewardAmount > 0);
     assume(floorPrice > 0);
     assume(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
     assume(endSecs > 0);
-    assume(distr.sum() <= royaltyCap);
-    assume(royaltyCap == (10 * floorPrice) / 1000000);
+    // -------------------------------------------
+    // Royalties
+    // -------------------------------------------
+    //assume(distr.sum() <= royaltyCap);
+    //assume(royaltyCap == (10 * floorPrice) / 1000000);
+    // -------------------------------------------
   });
   Auctioneer.publish(
     tokenAmount,
     rewardAmount,
     startPrice,
     floorPrice,
-    endSecs,
-    addrs,
-    distr,
-    royaltyCap
+    endSecs
+    // -------------------------------------------
+    // Royalties
+    // -------------------------------------------
+    //addrs,
+    //distr,
+    //royaltyCap
+    // -------------------------------------------
   )
     .pay([amt + rewardAmount + SERIAL_VER, [tokenAmount, token]])
     .timeout(relativeTime(ttl), () => {
@@ -154,15 +177,20 @@ export const App = (map) => {
   require(floorPrice > 0);
   require(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
   require(endSecs > 0);
-  require(distr.sum() <= royaltyCap);
-  require(royaltyCap == (10 * floorPrice) / 1000000);
+  // ---------------------------------------------
+  // Royalties
+  // ---------------------------------------------
+  //require(distr.sum() <= royaltyCap);
+  //require(royaltyCap == (10 * floorPrice) / 1000000);
+  // ---------------------------------------------
   transfer(amt).to(addr);
   v.startPrice.set(startPrice);
   v.floorPrice.set(floorPrice);
   v.endSecs.set(endSecs);
   v.token.set(token);
+  v.tokenP.set(tokenP);
   v.closed.set(false);
-  v.seller.set(Auctioneer);
+  v.manager.set(Auctioneer);
   Auctioneer.interact.signal();
   const referenceConcensusSecs = lastConsensusSecs();
   const dk = calc(
@@ -176,12 +204,13 @@ export const App = (map) => {
     .define(() => {
       v.currentPrice.set(currentPrice);
     })
-    .invariant(balance() >= rewardAmount)
+    .invariant(balance() >= rewardAmount && balance(tokenP) >= 0)
     .while(keepGoing)
+    // Touch the contract to update the current price
     .api(
       a.touch,
       () => assume(currentPrice >= floorPrice),
-      () => 0,
+      () => [0, [0, tokenP]],
       (k) => {
         require(currentPrice >= floorPrice);
         k(null);
@@ -191,13 +220,18 @@ export const App = (map) => {
         ];
       }
     )
+    // Accept offer to pay for the token
     .api(
       a.acceptOffer,
       () => assume(true),
-      () => currentPrice,
+      () => [1000000, [currentPrice, tokenP]], // 1 ALGO + Current Price in TokenP
       (k) => {
         require(true);
         k(null);
+        // ---------------------------------------
+        // Royalties
+        // ---------------------------------------
+        /*
         const cent = currentPrice / 100;
         const partTake = (currentPrice - cent) / royaltyCap;
         const distrTake = distr.slice(0, DIST_LENGTH).sum();
@@ -205,18 +239,24 @@ export const App = (map) => {
         transfer(cent).to(addr);
         transfer(partTake * distr[0]).to(addrs[0]);
         transfer(sellerTake).to(Auctioneer);
+        */
+        // ---------------------------------------
         transfer([[balance(token), token]]).to(this);
+        transfer(balance(tokenP), tokenP).to(Auctioneer);
+        transfer(1000000).to(addr);
         return [false, currentPrice];
       }
     )
+    // Cancel the auction and be returned the token
     .api(
       a.cancel,
       () => assume(this === Auctioneer),
-      () => 0,
+      () => [100000, [0, tokenP]], // 0.1 ALGO
       (k) => {
         require(this === Auctioneer);
         k(null);
         transfer([[balance(token), token]]).to(this);
+        transfer(100000).to(addr);
         return [false, 0];
       }
     )
@@ -224,9 +264,23 @@ export const App = (map) => {
   v.closed.set(true); // Set View Closed
   commit();
 
+  Relay.only(() => {
+    const rAddr = this;
+  });
+  Relay.publish(rAddr);
+  transfer(balance()).to(rAddr);
+  transfer(balance(token), token).to(rAddr);
+  transfer(balance(tokenP), tokenP).to(rAddr);
+  commit();
+  exit();
+
   // REM Auction over
   // REM Relay races to reward while distributing proceeds
 
+  // ---------------------------------------------
+  // Royalties
+  // ---------------------------------------------
+  /*
   Relay.publish();
   const cent = currentPrice / 100;
   const partTake = (currentPrice - cent) / royaltyCap;
@@ -254,5 +308,7 @@ export const App = (map) => {
   transfer([[balance(token), token]]).to(rAddr);
   commit();
   exit();
+  */
+  // ---------------------------------------------
 };
 // -----------------------------------------------
