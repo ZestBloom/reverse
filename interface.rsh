@@ -8,6 +8,8 @@
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
+const SERIAL_VER = 1;
+
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
 const DIST_LENGTH = 10;
@@ -64,17 +66,12 @@ const calc = (d, d2, p) => {
 
 const relayInteract = {};
 
-const depositerInteract = {
-  signal: Fun([], Null)
-};
-
 const auctioneerInteract = {
   getParams: Fun(
     [],
     Object({
       tokenAmount: UInt, // NFT token amount
       rewardAmount: UInt, // 1 ALGO
-      token: Token, // NFT token
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
@@ -83,19 +80,19 @@ const auctioneerInteract = {
       royaltyCap: UInt,
     })
   ),
+  signal: Fun([], Null),
 };
 
-// PARTICIPANTS
+export const Event = () => [];
 
 export const Participants = () => [
   Participant("Auctioneer", auctioneerInteract),
-  Participant("Depositer", depositerInteract),
-  ParticipantClass("Relay", relayInteract)
+  ParticipantClass("Relay", relayInteract),
 ];
 
 export const Views = () => [
-  View("Auction", {
-    manager: Address, // Standard View: Manager Address 
+  View({
+    manager: Address, // Standard View: Manager Address
     token: Token,
     currentPrice: UInt,
     startPrice: UInt,
@@ -103,12 +100,12 @@ export const Views = () => [
     closed: Bool,
     endSecs: UInt,
     priceChangePerSec: UInt,
-    seller: Address
+    seller: Address,
   }),
 ];
 
 export const Api = () => [
-  API("Bid", {
+  API({
     touch: Fun([], Null),
     acceptOffer: Fun([], Null),
     cancel: Fun([], Null),
@@ -116,13 +113,11 @@ export const Api = () => [
 ];
 
 export const App = (map) => {
-  const [[addr, _, addr2], [Auctioneer, Depositer, Relay], [Auction], [Bid]] = map;
-
+  const [{ amt, ttl, tok0: token }, [addr, _], [Auctioneer, Relay], [v], [a], _] = map;
   Auctioneer.only(() => {
     const {
       tokenAmount,
       rewardAmount,
-      token,
       startPrice,
       floorPrice,
       endSecs,
@@ -130,7 +125,6 @@ export const App = (map) => {
       distr,
       royaltyCap,
     } = declassify(interact.getParams());
-    assume(this == addr2);
     assume(tokenAmount > 0);
     assume(rewardAmount > 0);
     assume(floorPrice > 0);
@@ -140,7 +134,6 @@ export const App = (map) => {
     assume(royaltyCap == (10 * floorPrice) / 1000000);
   });
   Auctioneer.publish(
-    token,
     tokenAmount,
     rewardAmount,
     startPrice,
@@ -150,13 +143,12 @@ export const App = (map) => {
     distr,
     royaltyCap
   )
-  .timeout(relativeTime(100), () => {
-    Anybody.publish();
-    commit();
-    exit();
-  });
-
-  require(Auctioneer == addr2);
+    .pay([amt + rewardAmount + SERIAL_VER, [tokenAmount, token]])
+    .timeout(relativeTime(ttl), () => {
+      Anybody.publish();
+      commit();
+      exit();
+    });
   require(tokenAmount > 0);
   require(rewardAmount > 0);
   require(floorPrice > 0);
@@ -164,46 +156,30 @@ export const App = (map) => {
   require(endSecs > 0);
   require(distr.sum() <= royaltyCap);
   require(royaltyCap == (10 * floorPrice) / 1000000);
-
-
-  Depositer.set(Auctioneer);
-
-  commit();
-
-  Depositer.pay([rewardAmount, [tokenAmount, token]])
-  .timeout(relativeTime(100), () => {
-    Anybody.publish();
-    commit();
-    exit();
-  });; 
-
-  Auction.startPrice.set(startPrice);
-  Auction.floorPrice.set(floorPrice);
-  Auction.endSecs.set(endSecs);
-  Auction.token.set(token);
-  Auction.closed.set(false);
-  Auction.seller.set(Auctioneer);
-
-  Depositer.interact.signal();
-
-  // Depositer done
-
+  transfer(amt).to(addr);
+  v.startPrice.set(startPrice);
+  v.floorPrice.set(floorPrice);
+  v.endSecs.set(endSecs);
+  v.token.set(token);
+  v.closed.set(false);
+  v.seller.set(Auctioneer);
+  Auctioneer.interact.signal();
   const referenceConcensusSecs = lastConsensusSecs();
-
   const dk = calc(
     startPrice - floorPrice,
     endSecs - referenceConcensusSecs,
     precision
   ).i.i;
-  Auction.priceChangePerSec.set(dk / precision);
+  v.priceChangePerSec.set(dk / precision);
+
   const [keepGoing, currentPrice] = parallelReduce([true, startPrice])
     .define(() => {
-      Auction.currentPrice.set(currentPrice);
+      v.currentPrice.set(currentPrice);
     })
     .invariant(balance() >= rewardAmount)
     .while(keepGoing)
     .api(
-      Bid.touch,
+      a.touch,
       () => assume(currentPrice >= floorPrice),
       () => 0,
       (k) => {
@@ -216,7 +192,7 @@ export const App = (map) => {
       }
     )
     .api(
-      Bid.acceptOffer,
+      a.acceptOffer,
       () => assume(true),
       () => currentPrice,
       (k) => {
@@ -234,7 +210,7 @@ export const App = (map) => {
       }
     )
     .api(
-      Bid.cancel,
+      a.cancel,
       () => assume(this === Auctioneer),
       () => 0,
       (k) => {
@@ -245,31 +221,36 @@ export const App = (map) => {
       }
     )
     .timeout(false);
-  Auction.closed.set(true); // Set View Closed
+  v.closed.set(true); // Set View Closed
   commit();
+
+  // REM Auction over
+  // REM Relay races to reward while distributing proceeds
+
   Relay.publish();
   const cent = currentPrice / 100;
   const partTake = (currentPrice - cent) / royaltyCap;
-  const distrTake = distr.slice(1, DIST_LENGTH-1).sum();
+  const distrTake = distr.slice(1, DIST_LENGTH - 1).sum();
   const recvAmount = balance() - partTake * distrTake; // REM includes reward amount
   transfer(partTake * distr[1]).to(addrs[1]);
   transfer(partTake * distr[2]).to(addrs[2]);
   transfer(partTake * distr[3]).to(addrs[3]);
   commit();
+
   Relay.publish();
   transfer(partTake * distr[4]).to(addrs[4]);
   transfer(partTake * distr[5]).to(addrs[5]);
   transfer(partTake * distr[6]).to(addrs[6]);
   commit();
+
   Relay.only(() => {
     const rAddr = this;
-  })
+  });
   Relay.publish(rAddr);
   transfer(partTake * distr[7]).to(addrs[7]);
   transfer(partTake * distr[8]).to(addrs[8]);
   transfer(partTake * distr[9]).to(addrs[9]);
   transfer(recvAmount).to(rAddr);
-
   transfer([[balance(token), token]]).to(rAddr);
   commit();
   exit();
