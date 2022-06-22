@@ -220,7 +220,15 @@ export const App = (map) => {
         ];
       }
     )
-    // Accept offer to pay for the token
+    // -------------------------------------------
+    // API: Accept offer to pay for the token
+    // Fee: 1 ALGO
+    // Payment: 1 ALGO
+    // Payout:
+    //  1 Token to the bidder
+    //  cp Payment Token to the auctioneer
+    //  1 ALGO to the platform
+    // -------------------------------------------
     .api(
       a.acceptOffer,
       () => assume(true),
