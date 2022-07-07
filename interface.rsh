@@ -9,6 +9,10 @@
 // -----------------------------------------------
 
 const SERIAL_VER = 0;
+const PLATFORM_AMT = 1000000; // 1A
+const FEE_MIN_ACCEPT = 8000;
+const FEE_MIN_CONSTRUCT = 6000;
+const FEE_MIN_RELAY = 7000;
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
@@ -19,7 +23,7 @@ const DIST_LENGTH = 10;
 /*
  * precision used in fixed point arithmetic
  */
-const precision = 1000000; // 10 ^ 6
+const precision = 10_000_000; // 10 ^ 6
 
 /*
  * calculate price based on seconds elapsed since reference secs
@@ -57,8 +61,8 @@ const payout = (rc, amt, d) =>
 
 // calculate slope
 const calc = (d, d2, p) => {
-  const fD = fx(6)(Pos, d);
-  const fD2 = fx(6)(Pos, d2);
+  const fD = fx(7)(Pos, d);
+  const fD2 = fx(7)(Pos, d2);
   return fxdiv(fD, fD2, p);
 };
 
@@ -81,6 +85,17 @@ const auctioneerInteract = {
       //addrs: Array(Address, DIST_LENGTH),
       //distr: Array(UInt, DIST_LENGTH),
       //royaltyCap: UInt,
+      // -----------------------------------------
+      // Store
+      // -----------------------------------------
+      storeAddr: Address, // store addr
+      storeAmt: UInt, // store amount to be received at pos
+      // -----------------------------------------
+      // Fees
+      // -----------------------------------------
+      acceptFee: UInt, // 7000uA
+      constructFee: UInt, // 6000uA
+      relayFee: UInt, // 7000uA
       // -----------------------------------------
     })
   ),
@@ -139,6 +154,12 @@ export const App = (map) => {
       //distr,
       //royaltyCap,
       // -----------------------------------------
+      storeAddr,
+      storeAmt,
+      // -----------------------------------------
+      acceptFee,
+      constructFee,
+      relayFee,
     } = declassify(interact.getParams());
     assume(tokenAmount > 0);
     assume(rewardAmount > 0);
@@ -151,13 +172,16 @@ export const App = (map) => {
     //assume(distr.sum() <= royaltyCap);
     //assume(royaltyCap == (10 * floorPrice) / 1000000);
     // -------------------------------------------
+    assume(acceptFee >= FEE_MIN_ACCEPT);
+    assume(constructFee >= FEE_MIN_CONSTRUCT);
+    assume(relayFee >= FEE_MIN_RELAY);
   });
   Auctioneer.publish(
     tokenAmount,
     rewardAmount,
     startPrice,
     floorPrice,
-    endSecs
+    endSecs,
     // -------------------------------------------
     // Royalties
     // -------------------------------------------
@@ -165,25 +189,33 @@ export const App = (map) => {
     //distr,
     //royaltyCap
     // -------------------------------------------
+    storeAddr,
+    storeAmt,
+    // -------------------------------------------
+    acceptFee,
+    constructFee,
+    relayFee
   )
-    .pay([amt + rewardAmount + SERIAL_VER, [tokenAmount, token]])
+    .pay([amt + (acceptFee + constructFee + relayFee) + SERIAL_VER, [tokenAmount, token]])
     .timeout(relativeTime(ttl), () => {
       Anybody.publish();
       commit();
       exit();
     });
   require(tokenAmount > 0);
-  require(rewardAmount > 0);
   require(floorPrice > 0);
   require(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
   require(endSecs > 0);
+  require(acceptFee >= FEE_MIN_ACCEPT);
+  require(constructFee >= FEE_MIN_CONSTRUCT);
+  require(relayFee >= FEE_MIN_RELAY);
   // ---------------------------------------------
   // Royalties
   // ---------------------------------------------
   //require(distr.sum() <= royaltyCap);
   //require(royaltyCap == (10 * floorPrice) / 1000000);
   // ---------------------------------------------
-  transfer(amt).to(addr);
+  transfer(amt + constructFee).to(addr);
   v.startPrice.set(startPrice);
   v.floorPrice.set(floorPrice);
   v.endSecs.set(endSecs);
@@ -200,11 +232,11 @@ export const App = (map) => {
   ).i.i;
   v.priceChangePerSec.set(dk / precision);
 
-  const [keepGoing, currentPrice] = parallelReduce([true, startPrice])
+  const [keepGoing, currentPrice, whoami] = parallelReduce([true, startPrice, Auctioneer])
     .define(() => {
       v.currentPrice.set(currentPrice);
     })
-    .invariant(balance() >= rewardAmount && balance(tokenP) >= 0)
+    .invariant(balance() >= (acceptFee + relayFee) && balance(tokenP) >= 0)
     .while(keepGoing)
     // Touch the contract to update the current price
     .api(
@@ -217,6 +249,7 @@ export const App = (map) => {
         return [
           true,
           priceFunc(startPrice, floorPrice, referenceConcensusSecs, dk),
+          whoami
         ];
       }
     )
@@ -227,12 +260,13 @@ export const App = (map) => {
     // Payout:
     //  1 Token to the bidder
     //  cp Payment Token to the auctioneer
-    //  1 ALGO to the platform
+    //  1 ALGO  to the platform
+    // Tx fee: 0.007 ALGO
     // -------------------------------------------
     .api(
       a.acceptOffer,
       () => assume(true),
-      () => [1000000, [currentPrice, tokenP]], // 1 ALGO + Current Price in TokenP
+      () => [PLATFORM_AMT + storeAmt, [currentPrice, tokenP]], // 1 ALGO + 3 ALGO + Current Price in TokenP
       (k) => {
         require(true);
         k(null);
@@ -249,10 +283,12 @@ export const App = (map) => {
         transfer(sellerTake).to(Auctioneer);
         */
         // ---------------------------------------
-        transfer([[balance(token), token]]).to(this);
+        transfer(balance(token), token).to(this);
         transfer(balance(tokenP), tokenP).to(Auctioneer);
-        transfer(1000000).to(addr);
-        return [false, currentPrice];
+        transfer(storeAmt).to(storeAddr);
+        transfer(PLATFORM_AMT).to(addr); // 1 ALGO
+        //transfer(acceptFee).to(this); // 0.007 ALGO
+        return [false, currentPrice, this];
       }
     )
     // Cancel the auction and be returned the token
@@ -264,12 +300,13 @@ export const App = (map) => {
         require(this === Auctioneer);
         k(null);
         transfer([[balance(token), token]]).to(this);
-        transfer(100000).to(addr);
-        return [false, 0];
+        transfer(100000).to(addr); // 0.1 ALGO
+        return [false, 0, whoami];
       }
     )
     .timeout(false);
   v.closed.set(true); // Set View Closed
+  transfer(acceptFee).to(whoami); // 0.007 ALGO
   commit();
 
   Relay.only(() => {
@@ -318,5 +355,6 @@ export const App = (map) => {
   exit();
   */
   // ---------------------------------------------
+  
 };
 // -----------------------------------------------
