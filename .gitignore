@@ -3,6 +3,6 @@ reach
 .reach
 node_modules
 package.json
-test.sh
+*.sh
 yarn.lock
 .env
