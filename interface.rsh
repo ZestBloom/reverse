@@ -10,13 +10,13 @@
 
 const SERIAL_VER = 0;
 const PLATFORM_AMT = 1000000; // 1A
-const FEE_MIN_ACCEPT = 8000;
-const FEE_MIN_CONSTRUCT = 6000;
-const FEE_MIN_RELAY = 7000;
+const FEE_MIN_ACCEPT = 8000; // 0.008A
+const FEE_MIN_CONSTRUCT = 6000; // 0.006A
+const FEE_MIN_RELAY = 7000; // 0.007A
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
-const DIST_LENGTH = 10;
+const DIST_LENGTH = 10; // TODO deprecated unused
 
 // FUNCS
 
