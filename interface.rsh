@@ -8,7 +8,7 @@
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
-const SERIAL_VER = 0;
+const SERIAL_VER = 1;
 const PLATFORM_AMT = 1000000; // 1A
 const FEE_MIN_ACCEPT = 8000; // 0.008A
 const FEE_MIN_CONSTRUCT = 6000; // 0.006A
