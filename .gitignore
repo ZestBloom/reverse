@@ -6,3 +6,4 @@ package.json
 test.sh
 yarn.lock
 .env
+*.sh
