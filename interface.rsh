@@ -306,6 +306,8 @@ export const App = (map) => {
     )
     .timeout(false);
   v.closed.set(true); // Set View Closed
+  // TODO update current price
+  // TODO update whoami as buy
   transfer(acceptFee).to(whoami); // 0.007 ALGO
   commit();
 
