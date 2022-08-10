@@ -8,11 +8,12 @@
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
-const SERIAL_VER = 1;
-
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
-const DIST_LENGTH = 10;
+const SERIAL_VER = 1; // serial version of reach app reserved to release identical contracts under a separate plana id
+// regarding plan ids, the plan ids is the md5 of the approval program in algorand
+
+const DIST_LENGTH = 10; // number of slots to distribute proceeds after sale
 
 // FUNCS
 
@@ -35,27 +36,7 @@ const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
     )
   );
 
-/*
- * caculate percent
- * c - cap
- * i - part
- * p - precision
- */
-const percent = (c, i, p) => {
-  const fD = fx(6)(Pos, i);
-  const fD2 = fx(6)(Pos, c);
-  return fxdiv(fD, fD2, p);
-};
-
-/*
- * calulate payout
- * amt - amount to split
- * d - distribution [0,10000]
- */
-const payout = (rc, amt, d) =>
-  fxmul(fx(6)(Pos, amt), percent(rc, d, precision)).i.i / precision;
-
-// calculate slope
+// calculate slope of line to determine price
 const calc = (d, d2, p) => {
   const fD = fx(6)(Pos, d);
   const fD2 = fx(6)(Pos, d2);
@@ -75,9 +56,9 @@ const auctioneerInteract = {
       startPrice: UInt, // 100
       floorPrice: UInt, // 1
       endSecs: UInt, // 1
-      addrs: Array(Address, DIST_LENGTH),
-      distr: Array(UInt, DIST_LENGTH),
-      royaltyCap: UInt,
+      addrs: Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
+      distr: Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+      royaltyCap: UInt, // 10
     })
   ),
   signal: Fun([], Null),
@@ -178,6 +159,7 @@ export const App = (map) => {
     })
     .invariant(balance() >= rewardAmount)
     .while(keepGoing)
+    // api: updates current price
     .api(
       a.touch,
       () => assume(currentPrice >= floorPrice),
@@ -191,6 +173,7 @@ export const App = (map) => {
         ];
       }
     )
+    // api: accepts offer
     .api(
       a.acceptOffer,
       () => assume(true),
@@ -209,6 +192,7 @@ export const App = (map) => {
         return [false, currentPrice];
       }
     )
+    // api: cancels auction
     .api(
       a.cancel,
       () => assume(this === Auctioneer),
