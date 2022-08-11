@@ -4,13 +4,13 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.4.2 - fix cancel, add seller addr
+// Version: 0.4.3 - revisions
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
-const SERIAL_VER = 1; // serial version of reach app reserved to release identical contracts under a separate plana id
+const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
 // regarding plan ids, the plan ids is the md5 of the approval program in algorand
 
 const DIST_LENGTH = 10; // number of slots to distribute proceeds after sale
@@ -28,7 +28,14 @@ const precision = 1000000; // 10 ^ 6
 const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
   max(
     floorPrice,
-    ((diff) => (startPrice <= diff ? floorPrice : startPrice - diff))(
+    ((diff) => {
+      if (startPrice <= diff) {
+        // if is lazy, ? is not lazy (startPrice - diff can underflow)
+        return floorPrice;
+      } else {
+        return startPrice - diff;
+      }
+    })(
       min(
         ((lastConsensusSecs() - referenceConcensusSecs) * dk) / precision,
         startPrice - floorPrice
@@ -93,8 +100,38 @@ export const Api = () => [
   }),
 ];
 
+/*
+ * Check params from auctioneer
+ */
+const checkParams = (
+  tokenAmount,
+  rewardAmount,
+  startPrice,
+  floorPrice,
+  endSecs,
+  //addrs,
+  distr,
+  royaltyCap
+) => {
+  check(tokenAmount > 0);
+  check(rewardAmount > 0);
+  check(floorPrice > 0);
+  check(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
+  check(endSecs > 0);
+  // no checks for addrs
+  check(distr.sum() <= royaltyCap);
+  check(royaltyCap == (10 * floorPrice) / 1000000);
+};
+
 export const App = (map) => {
-  const [{ amt, ttl, tok0: token }, [addr, _], [Auctioneer, Relay], [v], [a], _] = map;
+  const [
+    { amt, ttl, tok0: token },
+    [addr, _],
+    [Auctioneer, Relay],
+    [v],
+    [a],
+    _,
+  ] = map;
   Auctioneer.only(() => {
     const {
       tokenAmount,
@@ -106,13 +143,16 @@ export const App = (map) => {
       distr,
       royaltyCap,
     } = declassify(interact.getParams());
-    assume(tokenAmount > 0);
-    assume(rewardAmount > 0);
-    assume(floorPrice > 0);
-    assume(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
-    assume(endSecs > 0);
-    assume(distr.sum() <= royaltyCap);
-    assume(royaltyCap == (10 * floorPrice) / 1000000);
+    checkParams(
+      tokenAmount,
+      rewardAmount,
+      startPrice,
+      floorPrice,
+      endSecs,
+      //addrs,
+      distr,
+      royaltyCap
+    );
   });
   Auctioneer.publish(
     tokenAmount,
@@ -130,13 +170,16 @@ export const App = (map) => {
       commit();
       exit();
     });
-  require(tokenAmount > 0);
-  require(rewardAmount > 0);
-  require(floorPrice > 0);
-  require(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
-  require(endSecs > 0);
-  require(distr.sum() <= royaltyCap);
-  require(royaltyCap == (10 * floorPrice) / 1000000);
+  checkParams(
+    tokenAmount,
+    rewardAmount,
+    startPrice,
+    floorPrice,
+    endSecs,
+    //addrs,
+    distr,
+    royaltyCap
+  );
   transfer(amt).to(addr);
   v.startPrice.set(startPrice);
   v.floorPrice.set(floorPrice);
@@ -157,8 +200,12 @@ export const App = (map) => {
     .define(() => {
       v.currentPrice.set(currentPrice);
     })
-    .invariant(balance() >= rewardAmount)
+    .invariant(
+      balance() >= rewardAmount + SERIAL_VER /*+ rest in case of sale*/ //&&
+      //balance(token) <= tokenAmount
+    )
     .while(keepGoing)
+    // TODO may use api_ later in future version of reach
     // api: updates current price
     .api(
       a.touch,
@@ -176,10 +223,10 @@ export const App = (map) => {
     // api: accepts offer
     .api(
       a.acceptOffer,
-      () => assume(true),
+      () => assume(balance(token) == tokenAmount),
       () => currentPrice,
       (k) => {
-        require(true);
+        require(balance(token) == tokenAmount);
         k(null);
         const cent = currentPrice / 100;
         const partTake = (currentPrice - cent) / royaltyCap;
@@ -195,12 +242,13 @@ export const App = (map) => {
     // api: cancels auction
     .api(
       a.cancel,
-      () => assume(this === Auctioneer),
+      () => assume(this === Auctioneer && balance(token) == tokenAmount),
       () => 0,
       (k) => {
         require(this === Auctioneer);
+        require(balance(token) == tokenAmount);
         k(null);
-        transfer([[balance(token), token]]).to(this);
+        transfer([0, [tokenAmount, token]]).to(this);
         return [false, 0];
       }
     )
@@ -208,10 +256,14 @@ export const App = (map) => {
   v.closed.set(true); // Set View Closed
   commit();
 
+  // REM know token balance is zero
   // REM Auction over
   // REM Relay races to reward while distributing proceeds
-
+  Relay.only(() => {
+    assume(balance(token) == 0);
+  });
   Relay.publish();
+  require(balance(token) == 0);
   const cent = currentPrice / 100;
   const partTake = (currentPrice - cent) / royaltyCap;
   const distrTake = distr.slice(1, DIST_LENGTH - 1).sum();
@@ -219,23 +271,20 @@ export const App = (map) => {
   transfer(partTake * distr[1]).to(addrs[1]);
   transfer(partTake * distr[2]).to(addrs[2]);
   transfer(partTake * distr[3]).to(addrs[3]);
-  commit();
-
-  Relay.publish();
   transfer(partTake * distr[4]).to(addrs[4]);
+  commit();
+  Relay.publish();
   transfer(partTake * distr[5]).to(addrs[5]);
   transfer(partTake * distr[6]).to(addrs[6]);
+  transfer(partTake * distr[7]).to(addrs[7]);
+  transfer(partTake * distr[8]).to(addrs[8]);
   commit();
-
   Relay.only(() => {
     const rAddr = this;
   });
   Relay.publish(rAddr);
-  transfer(partTake * distr[7]).to(addrs[7]);
-  transfer(partTake * distr[8]).to(addrs[8]);
   transfer(partTake * distr[9]).to(addrs[9]);
   transfer(recvAmount).to(rAddr);
-  transfer([[balance(token), token]]).to(rAddr);
   commit();
   exit();
 };
