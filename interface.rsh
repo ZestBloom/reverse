@@ -16,9 +16,9 @@ const SERIAL_VER = 0; // serial version of reach app reserved to release identic
 const DIST_LENGTH = 10; // number of slots to distribute proceeds after sale
 //const PLATFORM_AMT = 1000000; // 1A
 
-const FEE_MIN_ACCEPT = 7000; 
-const FEE_MIN_CONSTRUCT = 5000; 
-const FEE_MIN_RELAY = 17000; 
+const FEE_MIN_ACCEPT = 7000;
+const FEE_MIN_CONSTRUCT = 5000;
+const FEE_MIN_RELAY = 17000;
 
 // FUNCS
 
@@ -117,33 +117,6 @@ export const Api = () => [
   }),
 ];
 
-/*
- * Check params from auctioneer
- */
-const checkParams = (
-  tokenAmount,
-  startPrice,
-  floorPrice,
-  endSecs,
-  //addrs,
-  distr,
-  royaltyCap,
-  acceptFee,
-  constructFee,
-  relayFee
-) => {
-  check(tokenAmount > 0);
-  check(floorPrice > 0);
-  check(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
-  check(endSecs > 0);
-  // no checks for addrs
-  check(distr.sum() <= royaltyCap);
-  check(royaltyCap == (10 * floorPrice) / 1000000);
-  check(acceptFee >= FEE_MIN_ACCEPT);
-  check(constructFee >= FEE_MIN_CONSTRUCT);
-  check(relayFee >= FEE_MIN_RELAY);
-};
-
 export const App = (map) => {
   const [
     { amt, ttl, tok0: token },
@@ -167,18 +140,6 @@ export const App = (map) => {
       constructFee,
       relayFee,
     } = declassify(interact.getParams());
-    checkParams(
-      tokenAmount,
-      startPrice,
-      floorPrice,
-      endSecs,
-      //addrs,
-      distr,
-      royaltyCap,
-      acceptFee,
-      constructFee,
-      relayFee
-    );
   });
   Auctioneer.publish(
     manager,
@@ -193,6 +154,18 @@ export const App = (map) => {
     constructFee,
     relayFee
   )
+    .check(() => {
+      check(tokenAmount > 0);
+      check(floorPrice > 0);
+      check(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
+      check(endSecs > 0);
+      // no checks for addrs
+      check(distr.sum() <= royaltyCap);
+      check(royaltyCap == (10 * floorPrice) / 1000000);
+      check(acceptFee >= FEE_MIN_ACCEPT);
+      check(constructFee >= FEE_MIN_CONSTRUCT);
+      check(relayFee >= FEE_MIN_RELAY);
+    })
     .pay([
       amt + (constructFee + acceptFee + relayFee) + SERIAL_VER,
       [tokenAmount, token],
@@ -202,18 +175,6 @@ export const App = (map) => {
       commit();
       exit();
     });
-  checkParams(
-    tokenAmount,
-    startPrice,
-    floorPrice,
-    endSecs,
-    //addrs,
-    distr,
-    royaltyCap,
-    acceptFee,
-    constructFee,
-    relayFee
-  );
   transfer(amt + constructFee + SERIAL_VER).to(addr);
 
   Auctioneer.interact.signal();
@@ -250,7 +211,7 @@ export const App = (map) => {
     })
     .invariant(
       implies(!state[STATE_CLOSED], balance(token) == tokenAmount) &&
-      balance() >= (acceptFee + relayFee) /*+ rest in case of sale*/ //&&
+        balance() >= acceptFee + relayFee /*+ rest in case of sale*/ //&&
       //balance(token) <= tokenAmount
     )
     .while(!state[STATE_CLOSED])
