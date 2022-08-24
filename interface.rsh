@@ -4,19 +4,21 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 0.5.0 - use single view
-// Requires Reach v0.1.7
+// Version: 1.0.0 - reach19 update
+// Requires Reach v0.1.11-rc7 or later
 // -----------------------------------------------
+
+// IMPORTS
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
+// CONSTS
+
 const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
-// regarding plan ids, the plan ids is the md5 of the approval program in algorand
 
-const DIST_LENGTH = 10; // number of slots to distribute proceeds after sale
-//const PLATFORM_AMT = 1000000; // 1A
+const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 7000;
+const FEE_MIN_ACCEPT = 6000;
 const FEE_MIN_CONSTRUCT = 5000;
 const FEE_MIN_RELAY = 17000;
 
@@ -30,23 +32,25 @@ const precision = 1000000; // 10 ^ 6
 /*
  * calculate price based on seconds elapsed since reference secs
  */
-const priceFunc = (startPrice, floorPrice, referenceConcensusSecs, dk) =>
-  max(
-    floorPrice,
-    ((diff) => {
-      if (startPrice <= diff) {
-        // if is lazy, ? is not lazy (startPrice - diff can underflow)
-        return floorPrice;
-      } else {
-        return startPrice - diff;
-      }
-    })(
-      min(
-        ((lastConsensusSecs() - referenceConcensusSecs) * dk) / precision,
-        startPrice - floorPrice
+
+const priceFunc =
+  (secs) => (startPrice, floorPrice, referenceConcensusSecs, dk) =>
+    max(
+      floorPrice,
+      ((diff) => {
+        if (startPrice <= diff) {
+          // if is lazy, ? is not lazy (startPrice - diff can underflow)
+          return floorPrice;
+        } else {
+          return startPrice - diff;
+        }
+      })(
+        min(
+          ((secs - referenceConcensusSecs) * dk) / precision,
+          startPrice - floorPrice
+        )
       )
-    )
-  );
+    );
 
 // calculate slope of line to determine price
 const calc = (d, d2, p) => {
@@ -97,11 +101,14 @@ const State = Tuple(
   /*priceChangePerSec*/ UInt,
   /*addrs*/ Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
   /*distr*/ Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-  /*royaltyCap*/ UInt
+  /*royaltyCap*/ UInt,
+  ///*partTake*/ UInt,
+  /*who*/ Address
 );
 
 const STATE_CURRENT_PRICE = 3;
 const STATE_CLOSED = 6;
+const STATE_WHO = 12;
 
 export const Views = () => [
   View({
@@ -141,6 +148,9 @@ export const App = (map) => {
       relayFee,
     } = declassify(interact.getParams());
   });
+
+  // Step 1
+
   Auctioneer.publish(
     manager,
     tokenAmount,
@@ -171,6 +181,7 @@ export const App = (map) => {
       [tokenAmount, token],
     ])
     .timeout(relativeTime(ttl), () => {
+      // Step 2
       Anybody.publish();
       commit();
       exit();
@@ -178,7 +189,11 @@ export const App = (map) => {
   transfer(amt + constructFee + SERIAL_VER).to(addr);
 
   Auctioneer.interact.signal();
-  const referenceConcensusSecs = lastConsensusSecs();
+
+  const distrTake = distr.slice(0, DIST_LENGTH).sum();
+
+  const referenceConcensusSecs = thisConsensusSecs();
+
   const dk = calc(
     startPrice - floorPrice,
     endSecs - referenceConcensusSecs,
@@ -198,123 +213,135 @@ export const App = (map) => {
     /*addrs*/ addrs,
     /*distr*/ distr,
     /*royaltyCap*/ royaltyCap,
+    ///*partTake*/ 0,
+    /*who*/ manager,
   ];
 
-  // TODO revise invariant to eliminate assume/require
-  // JAY The reason you need the assume/require is because of the loop invariant.
-  // JAY You should put implies(!done, balance(token) == tokenAmount) in the invariant and remove the assume/requires in the apis
-  // JAY You should do something like implies(done, balance(token) == 0) in the variant also
+  // Step 7
 
-  const [state, whoami] = parallelReduce([initialState, Auctioneer])
+  const [state, who, pTake] = parallelReduce([initialState, Auctioneer, 0])
     .define(() => {
       v.state.set(state);
     })
     .invariant(
-      implies(!state[STATE_CLOSED], balance(token) == tokenAmount) &&
-        balance() >= acceptFee + relayFee /*+ rest in case of sale*/ //&&
-      //balance(token) <= tokenAmount
+      implies(!state[STATE_CLOSED], balance(token) == tokenAmount),
+      "token balance accurate"
+    )
+    .invariant(
+      implies(!state[STATE_CLOSED], balance() == acceptFee + relayFee),
+      "balance accurate"
     )
     .while(!state[STATE_CLOSED])
-    // TODO may use api_ later in future version of reach
     // api: updates current price
-    .api(
-      a.touch,
-      () => assume(state[STATE_CURRENT_PRICE] >= floorPrice),
-      () => 0,
-      (k) => {
-        require(state[STATE_CURRENT_PRICE] >= floorPrice);
-        k(null);
-        const newPrice = priceFunc(
-          startPrice,
-          floorPrice,
-          referenceConcensusSecs,
-          dk
-        );
-        return [Tuple.set(state, STATE_CURRENT_PRICE, newPrice), this];
-      }
-    )
+    .api_(a.touch, () => {
+      check(state[STATE_CURRENT_PRICE] >= floorPrice);
+      return [
+        (k) => {
+          k(null);
+          return [
+            Tuple.set(
+              state,
+              STATE_CURRENT_PRICE,
+              priceFunc(thisConsensusSecs())(
+                startPrice,
+                floorPrice,
+                referenceConcensusSecs,
+                dk
+              )
+            ),
+            who,
+            pTake,
+          ];
+        },
+      ];
+    })
     // api: accepts offer
-    .api(
-      a.acceptOffer,
-      //() => assume(balance(token) == tokenAmount),
-      () => assume(true),
-      () => state[STATE_CURRENT_PRICE],
-      (k) => {
-        //require(balance(token) == tokenAmount);
-        require(true);
-        k(null);
-        const cent = state[STATE_CURRENT_PRICE] / 100;
-        const partTake = (state[STATE_CURRENT_PRICE] - cent) / royaltyCap;
-        const distrTake = distr.slice(0, DIST_LENGTH).sum();
-        const sellerTake =
-          state[STATE_CURRENT_PRICE] - cent - partTake * distrTake;
-        transfer(cent).to(addr);
-        transfer(partTake * distr[0]).to(addrs[0]);
-        transfer(sellerTake).to(Auctioneer);
-        transfer([[balance(token), token]]).to(this);
-        return [Tuple.set(state, STATE_CLOSED, true), this];
-      }
-    )
+    .api_(a.acceptOffer, () => {
+      return [
+        state[STATE_CURRENT_PRICE],
+        (k) => {
+          k(null);
+          const bal = priceFunc(thisConsensusSecs())(
+            startPrice,
+            floorPrice,
+            referenceConcensusSecs,
+            dk
+          );
+          // expect state[cp] >= bal
+          const diff = state[STATE_CURRENT_PRICE] - bal;
+          const cent = bal / 100;
+          const partTake = (bal - cent) / royaltyCap;
+          const proceedTake = partTake * distrTake;
+          const sellerTake = bal - cent - proceedTake;
+          transfer(cent).to(addr);
+          transfer(sellerTake).to(Auctioneer);
+          transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
+          return [
+            Tuple.set(
+              Tuple.set(state, STATE_CLOSED, true),
+              STATE_CURRENT_PRICE,
+              bal
+            ),
+            this,
+            partTake,
+          ];
+        },
+      ];
+    })
     // api: cancels auction
-    .api(
-      a.cancel,
-      //() => assume(this === Auctioneer && balance(token) == tokenAmount),
-      () => assume(this === Auctioneer),
-      () => 0,
-      (k) => {
-        require(this === Auctioneer);
-        //require(balance(token) == tokenAmount);
-        k(null);
-        transfer([0, [tokenAmount, token]]).to(this);
-        return [
-          Tuple.set(
-            Tuple.set(state, STATE_CURRENT_PRICE, 0),
-            STATE_CLOSED,
-            true
-          ),
-          this,
-        ];
-      }
-    )
+    .api_(a.cancel, () => {
+      check(this === Auctioneer);
+      //check(balance(token) == tokenAmount);
+      return [
+        (k) => {
+          k(null);
+          transfer([acceptFee, [tokenAmount, token]]).to(this);
+          return [Tuple.set(state, STATE_CLOSED, true), who, pTake];
+        },
+      ];
+    })
     .timeout(false);
-  transfer(acceptFee).to(whoami);
+  v.state.set(Tuple.set(state, STATE_WHO, who));
   commit();
 
-  // REM know token balance is zero
-  // REM Auction over
-  // REM Relay races to reward while distributing proceeds
-  // REM have assume/require here to fix token balance on exit without transfer
   Relay.only(() => {
     assume(balance(token) == 0);
   });
+
+  // Step 4
+
   Relay.publish();
   require(balance(token) == 0);
 
-  const cent = state[STATE_CURRENT_PRICE] / 100;
-  const partTake = (state[STATE_CURRENT_PRICE] - cent) / royaltyCap;
-  const distrTake = distr.slice(1, DIST_LENGTH - 1).sum();
-  const recvAmount = balance() - partTake * distrTake; // REM includes relayFee
-  transfer(partTake * distr[1]).to(addrs[1]);
-  transfer(partTake * distr[2]).to(addrs[2]);
-  transfer(partTake * distr[3]).to(addrs[3]);
-  transfer(partTake * distr[4]).to(addrs[4]);
-  commit();
-  Relay.publish();
-  transfer(partTake * distr[5]).to(addrs[5]);
-  transfer(partTake * distr[6]).to(addrs[6]);
-  transfer(partTake * distr[7]).to(addrs[7]);
-  transfer(partTake * distr[8]).to(addrs[8]);
-  commit();
-  Relay.only(() => {
-    const rAddr = this;
-  });
-  Relay.publish(rAddr);
-  transfer(partTake * distr[9]).to(addrs[9]);
-  // REM If DIST_LENGTH > 10
-  //WARNING: Compiler instructed to emit for Algorand, but we can statically determine that this program will not work on Algorand, because:
-  // * Step 1 uses 1081 bytes of logs, but the limit is 1024. Step 1 starts at /app/interface.rsh:182:14:dot.
-  transfer(recvAmount).to(rAddr);
-  commit();
-  exit();
+  ((recvAmount, pDistr) => {
+    transfer(pDistr[0]).to(addrs[0]);
+    transfer(pDistr[1]).to(addrs[1]);
+    transfer(pDistr[2]).to(addrs[2]);
+    transfer(pDistr[3]).to(addrs[3]);
+    commit();
+
+    // Step 5
+
+    Relay.publish();
+    transfer(pDistr[4]).to(addrs[4]);
+    transfer(pDistr[5]).to(addrs[5]);
+    transfer(pDistr[6]).to(addrs[6]);
+    transfer(pDistr[7]).to(addrs[7]);
+    commit();
+    Relay.only(() => {
+      const rAddr = this;
+    });
+
+    // Step 6
+
+    Relay.publish(rAddr);
+    transfer(pDistr[8]).to(addrs[8]);
+    transfer(recvAmount).to(rAddr);
+    commit();
+    exit();
+  })(
+    balance() - pTake * distrTake,
+    distr.map((d) => d * pTake)
+  );
 };
 // -----------------------------------------------
