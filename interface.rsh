@@ -102,7 +102,6 @@ const State = Tuple(
   /*addrs*/ Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
   /*distr*/ Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0
   /*royaltyCap*/ UInt,
-  ///*partTake*/ UInt,
   /*who*/ Address
 );
 
@@ -213,7 +212,6 @@ export const App = (map) => {
     /*addrs*/ addrs,
     /*distr*/ distr,
     /*royaltyCap*/ royaltyCap,
-    ///*partTake*/ 0,
     /*who*/ manager,
   ];
 
