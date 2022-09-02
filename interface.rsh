@@ -38,8 +38,9 @@ const priceFunc =
     max(
       floorPrice,
       ((diff) => {
+        // if is lazy, ? is not lazy (startPrice - diff can underflow)
+        //? is now lazy in a future version of reach, update later
         if (startPrice <= diff) {
-          // if is lazy, ? is not lazy (startPrice - diff can underflow)
           return floorPrice;
         } else {
           return startPrice - diff;
@@ -63,22 +64,21 @@ const calc = (d, d2, p) => {
 
 const relayInteract = {};
 
+const Params = Object({
+  tokenAmount: UInt, // NFT token amount
+  startPrice: UInt, // 100
+  floorPrice: UInt, // 1
+  endSecs: UInt, // 1
+  addrs: Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
+  distr: Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  royaltyCap: UInt, // 10
+  acceptFee: UInt, // 0.008
+  constructFee: UInt, // 0.006
+  relayFee: UInt, // 0.007
+});
+
 const auctioneerInteract = {
-  getParams: Fun(
-    [],
-    Object({
-      tokenAmount: UInt, // NFT token amount
-      startPrice: UInt, // 100
-      floorPrice: UInt, // 1
-      endSecs: UInt, // 1
-      addrs: Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
-      distr: Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-      royaltyCap: UInt, // 10
-      acceptFee: UInt, // 0.008
-      constructFee: UInt, // 0.006
-      relayFee: UInt, // 0.007
-    })
-  ),
+  getParams: Fun([], Params),
   signal: Fun([], Null),
 };
 
@@ -89,25 +89,21 @@ export const Participants = () => [
   ParticipantClass("Relay", relayInteract),
 ];
 
-const State = Tuple(
-  /*maanger*/ Address,
-  /*token*/ Token,
-  /*tokenAmount*/ UInt,
-  /*currentPrice*/ UInt,
-  /*startPrice*/ UInt,
-  /*floorPrice*/ UInt,
-  /*closed*/ Bool,
-  /*endSecs*/ UInt,
-  /*priceChangePerSec*/ UInt,
-  /*addrs*/ Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
-  /*distr*/ Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-  /*royaltyCap*/ UInt,
-  /*who*/ Address
-);
-
-const STATE_CURRENT_PRICE = 3;
-const STATE_CLOSED = 6;
-const STATE_WHO = 12;
+const State = Object({
+  manager: Address,
+  token: Token,
+  tokenAmount: UInt,
+  currentPrice: UInt,
+  startPrice: UInt,
+  floorPrice: UInt,
+  closed: Bool,
+  endSecs: UInt,
+  priceChagePerSec: UInt,
+  addrs: Array(Address, DIST_LENGTH),
+  distr: Array(UInt, DIST_LENGTH),
+  royaltyCap: UInt,
+  who: Address,
+});
 
 export const Views = () => [
   View({
@@ -133,7 +129,6 @@ export const App = (map) => {
     _,
   ] = map;
   Auctioneer.only(() => {
-    const manager = this;
     const {
       tokenAmount,
       startPrice,
@@ -151,7 +146,6 @@ export const App = (map) => {
   // Step 1
 
   Auctioneer.publish(
-    manager,
     tokenAmount,
     startPrice,
     floorPrice,
@@ -199,59 +193,57 @@ export const App = (map) => {
     precision
   ).i.i;
 
-  const initialState = [
-    /*maanger*/ manager,
-    /*token*/ token,
-    /*tokenAmount*/ tokenAmount,
-    /*currentPrice*/ startPrice,
-    /*startPrice*/ startPrice,
-    /*floorPrice*/ floorPrice,
-    /*closed*/ false,
-    /*endSecs*/ endSecs,
-    /*priceChangePerSec*/ dk / precision,
-    /*addrs*/ addrs,
-    /*distr*/ distr,
-    /*royaltyCap*/ royaltyCap,
-    /*who*/ manager,
-  ];
+  const initialState = {
+    manager: Auctioneer,
+    token,
+    tokenAmount,
+    currentPrice: startPrice,
+    startPrice,
+    floorPrice,
+    closed: false,
+    endSecs,
+    priceChangePerSec: dk / precision,
+    addrs,
+    distr,
+    royaltyCap: royaltyCap,
+    who: Auctioneer
+  };
 
-  // Step 7
+  // Step
 
-  const [state, who, pTake] = parallelReduce([initialState, Auctioneer, 0])
+  const [state, pTake] = parallelReduce([initialState, 0])
     .define(() => {
       v.state.set(state);
     })
     .invariant(
-      implies(!state[STATE_CLOSED], balance(token) == tokenAmount),
+      implies(!state.closed, balance(token) == tokenAmount),
       "token balance accurate before close"
     )
     .invariant(
-      implies(state[STATE_CLOSED], balance(token) == 0),
+      implies(state.closed, balance(token) == 0),
       "token balance accurate after closed"
     )
     .invariant(
-      implies(!state[STATE_CLOSED], balance() == acceptFee + relayFee),
+      implies(!state.closed, balance() == acceptFee + relayFee),
       "balance accurate"
     )
-    .while(!state[STATE_CLOSED])
+    .while(!state.closed)
     // api: updates current price
     .api_(a.touch, () => {
-      check(state[STATE_CURRENT_PRICE] >= floorPrice);
+      check(state.currentPrice >= floorPrice);
       return [
         (k) => {
           k(null);
           return [
-            Tuple.set(
-              state,
-              STATE_CURRENT_PRICE,
-              priceFunc(thisConsensusSecs())(
+            {
+              ...state,
+              currentPrice: priceFunc(thisConsensusSecs())(
                 startPrice,
                 floorPrice,
                 referenceConcensusSecs,
                 dk
-              )
-            ),
-            who,
+              ),
+            },
             pTake,
           ];
         },
@@ -260,7 +252,7 @@ export const App = (map) => {
     // api: accepts offer
     .api_(a.acceptOffer, () => {
       return [
-        state[STATE_CURRENT_PRICE],
+        state.currentPrice,
         (k) => {
           k(null);
           const bal = priceFunc(thisConsensusSecs())(
@@ -270,7 +262,7 @@ export const App = (map) => {
             dk
           );
           // expect state[cp] >= bal
-          const diff = state[STATE_CURRENT_PRICE] - bal;
+          const diff = state.currentPrice - bal;
           const cent = bal / 100;
           const partTake = (bal - cent) / royaltyCap;
           const proceedTake = partTake * distrTake;
@@ -279,12 +271,11 @@ export const App = (map) => {
           transfer(sellerTake).to(Auctioneer);
           transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
           return [
-            Tuple.set(
-              Tuple.set(state, STATE_CLOSED, true),
-              STATE_CURRENT_PRICE,
-              bal
-            ),
-            this,
+            {
+              ...state,
+              currentPrice: bal,
+              who: this,
+            },
             partTake,
           ];
         },
@@ -293,17 +284,21 @@ export const App = (map) => {
     // api: cancels auction
     .api_(a.cancel, () => {
       check(this === Auctioneer);
-      //check(balance(token) == tokenAmount);
       return [
         (k) => {
           k(null);
           transfer([acceptFee, [tokenAmount, token]]).to(this);
-          return [Tuple.set(state, STATE_CLOSED, true), who, pTake];
+          return [
+            {
+              ...state,
+              closed: true,
+            },
+            pTake,
+          ];
         },
       ];
     })
     .timeout(false);
-  v.state.set(Tuple.set(state, STATE_WHO, who));
   commit();
 
   // Step
@@ -326,7 +321,7 @@ export const App = (map) => {
     Relay.only(() => {
       const rAddr = this;
     });
-    // Step 
+    // Step
     Relay.publish(rAddr);
     transfer(pDistr[8]).to(addrs[8]);
     transfer(recvAmount).to(rAddr);
