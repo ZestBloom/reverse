@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 1.0.0 - reach19 update
+// Version: 1.0.1 - fix token balance invariant
 // Requires Reach v0.1.11-rc7 or later
 // -----------------------------------------------
 
@@ -223,7 +223,11 @@ export const App = (map) => {
     })
     .invariant(
       implies(!state[STATE_CLOSED], balance(token) == tokenAmount),
-      "token balance accurate"
+      "token balance accurate before close"
+    )
+    .invariant(
+      implies(state[STATE_CLOSED], balance(token) == 0),
+      "token balance accurate after closed"
     )
     .invariant(
       implies(!state[STATE_CLOSED], balance() == acceptFee + relayFee),
@@ -302,15 +306,8 @@ export const App = (map) => {
   v.state.set(Tuple.set(state, STATE_WHO, who));
   commit();
 
-  Relay.only(() => {
-    assume(balance(token) == 0);
-  });
-
-  // Step 4
-
+  // Step
   Relay.publish();
-  require(balance(token) == 0);
-
   ((recvAmount, pDistr) => {
     transfer(pDistr[0]).to(addrs[0]);
     transfer(pDistr[1]).to(addrs[1]);
@@ -318,20 +315,18 @@ export const App = (map) => {
     transfer(pDistr[3]).to(addrs[3]);
     commit();
 
-    // Step 5
-
+    // Step
     Relay.publish();
     transfer(pDistr[4]).to(addrs[4]);
     transfer(pDistr[5]).to(addrs[5]);
     transfer(pDistr[6]).to(addrs[6]);
     transfer(pDistr[7]).to(addrs[7]);
     commit();
+
     Relay.only(() => {
       const rAddr = this;
     });
-
-    // Step 6
-
+    // Step 
     Relay.publish(rAddr);
     transfer(pDistr[8]).to(addrs[8]);
     transfer(recvAmount).to(rAddr);
