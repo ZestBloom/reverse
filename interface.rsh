@@ -89,6 +89,7 @@ export const Participants = () => [
   ParticipantClass("Relay", relayInteract),
 ];
 
+// TODO consider migrating Tuple to Object when it works in future version if there is nothing wrong with the code
 const State = Tuple(
   /*maanger*/ Address,
   /*token*/ Token,
@@ -133,7 +134,6 @@ export const App = (map) => {
     _,
   ] = map;
   Auctioneer.only(() => {
-    const manager = this;
     const {
       tokenAmount,
       startPrice,
@@ -148,10 +148,8 @@ export const App = (map) => {
     } = declassify(interact.getParams());
   });
 
-  // Step 1
-
+  // Step
   Auctioneer.publish(
-    manager,
     tokenAmount,
     startPrice,
     floorPrice,
@@ -168,7 +166,6 @@ export const App = (map) => {
       check(floorPrice > 0);
       check(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
       check(endSecs > 0);
-      // no checks for addrs
       check(distr.sum() <= royaltyCap);
       check(royaltyCap == (10 * floorPrice) / 1000000);
       check(acceptFee >= FEE_MIN_ACCEPT);
@@ -180,7 +177,7 @@ export const App = (map) => {
       [tokenAmount, token],
     ])
     .timeout(relativeTime(ttl), () => {
-      // Step 2
+      // Step
       Anybody.publish();
       commit();
       exit();
@@ -200,7 +197,7 @@ export const App = (map) => {
   ).i.i;
 
   const initialState = [
-    /*maanger*/ manager,
+    /*maanger*/ Auctioneer,
     /*token*/ token,
     /*tokenAmount*/ tokenAmount,
     /*currentPrice*/ startPrice,
@@ -212,10 +209,10 @@ export const App = (map) => {
     /*addrs*/ addrs,
     /*distr*/ distr,
     /*royaltyCap*/ royaltyCap,
-    /*who*/ manager,
+    /*who*/ Auctioneer
   ];
 
-  // Step 7
+  // Step
 
   const [state, who, pTake] = parallelReduce([initialState, Auctioneer, 0])
     .define(() => {
@@ -269,9 +266,11 @@ export const App = (map) => {
             referenceConcensusSecs,
             dk
           );
-          // expect state[cp] >= bal
-          const diff = state[STATE_CURRENT_PRICE] - bal;
-          const cent = bal / 100;
+          const diff = state[STATE_CURRENT_PRICE] - bal; // expect state[cp] >= bal
+          // TODO concider percent precision approach proposed by @jeapostrophe
+          // ie. UInt( ((UInt256(amount) * UInt256(percentPrecision)) * UInt256(percentage)) / UInt256(percentPrecision) )
+          // where where percentPrecision is like 10_000 and percentage is like 500, meaning 5%
+          const cent = bal / 100; // here
           const partTake = (bal - cent) / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = bal - cent - proceedTake;
@@ -293,7 +292,6 @@ export const App = (map) => {
     // api: cancels auction
     .api_(a.cancel, () => {
       check(this === Auctioneer);
-      //check(balance(token) == tokenAmount);
       return [
         (k) => {
           k(null);
@@ -326,7 +324,7 @@ export const App = (map) => {
     Relay.only(() => {
       const rAddr = this;
     });
-    // Step 
+    // Step
     Relay.publish(rAddr);
     transfer(pDistr[8]).to(addrs[8]);
     transfer(recvAmount).to(rAddr);
