@@ -270,7 +270,7 @@ export const App = (map) => {
           // TODO concider percent precision approach proposed by @jeapostrophe
           // ie. UInt( ((UInt256(amount) * UInt256(percentPrecision)) * UInt256(percentage)) / UInt256(percentPrecision) )
           // where where percentPrecision is like 10_000 and percentage is like 500, meaning 5%
-          const cent = bal / 100; // here
+          const cent = bal / 100; 
           const partTake = (bal - cent) / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = bal - cent - proceedTake;
