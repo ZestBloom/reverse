@@ -103,12 +103,16 @@ const State = Tuple(
   /*addrs*/ Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
   /*distr*/ Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0
   /*royaltyCap*/ UInt,
-  /*who*/ Address
+  /*who*/ Address,
+  /*activeAmount*/ UInt,
+  /*activeAccount*/ Address
 );
 
 const STATE_CURRENT_PRICE = 3;
 const STATE_CLOSED = 6;
 const STATE_WHO = 12;
+const STATE_ACTIVE_AMOUNT = 13;
+const STATE_ACTIVE_ADDRESS = 14;
 
 export const Views = () => [
   View({
@@ -121,12 +125,13 @@ export const Api = () => [
     touch: Fun([], Null),
     acceptOffer: Fun([], Null),
     cancel: Fun([], Null),
+    bid: Fun([UInt], Null),
   }),
 ];
 
 export const App = (map) => {
   const [
-    { amt, ttl, tok0: token },
+    { amt, ttl, tok0: token, tok1: activeToken },
     [addr, _],
     [Auctioneer, Relay],
     [v],
@@ -209,8 +214,13 @@ export const App = (map) => {
     /*addrs*/ addrs,
     /*distr*/ distr,
     /*royaltyCap*/ royaltyCap,
-    /*who*/ Auctioneer
+    /*who*/ Auctioneer,
+    /*activeAmount*/ 0,
+    /*activeAddress*/ Auctioneer,
   ];
+
+
+  v.state.set(initialState);
 
   // Step
 
@@ -226,12 +236,26 @@ export const App = (map) => {
       implies(state[STATE_CLOSED], balance(token) == 0),
       "token balance accurate after closed"
     )
+    /*
+    .invariant(
+      implies(
+        !state[STATE_CLOSED],
+        balance(activeToken) == state[STATE_ACTIVE_AMOUNT]
+      ),
+      "active token balance accurate before closed"
+    )
+    .invariant(
+      implies(state[STATE_CLOSED], balance(activeToken) == 0),
+      "active token balance accurate after closed"
+    )
+    */
     .invariant(
       implies(!state[STATE_CLOSED], balance() == acceptFee + relayFee),
       "balance accurate"
     )
     .while(!state[STATE_CLOSED])
-    // api: updates current price
+    .paySpec([activeToken])
+    // api: touch - updates current price
     .api_(a.touch, () => {
       check(state[STATE_CURRENT_PRICE] >= floorPrice);
       return [
@@ -257,7 +281,7 @@ export const App = (map) => {
     // api: accepts offer
     .api_(a.acceptOffer, () => {
       return [
-        state[STATE_CURRENT_PRICE],
+        [state[STATE_CURRENT_PRICE], [0, activeToken]],
         (k) => {
           k(null);
           const bal = priceFunc(thisConsensusSecs())(
@@ -270,13 +294,17 @@ export const App = (map) => {
           // TODO concider percent precision approach proposed by @jeapostrophe
           // ie. UInt( ((UInt256(amount) * UInt256(percentPrecision)) * UInt256(percentage)) / UInt256(percentPrecision) )
           // where where percentPrecision is like 10_000 and percentage is like 500, meaning 5%
-          const cent = bal / 100; 
+          const cent = bal / 100;
           const partTake = (bal - cent) / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = bal - cent - proceedTake;
           transfer(cent).to(addr);
           transfer(sellerTake).to(Auctioneer);
-          transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
+          transfer([
+            acceptFee + diff,
+            [tokenAmount, token],
+            [state[STATE_ACTIVE_AMOUNT], activeToken],
+          ]).to(this);
           return [
             Tuple.set(
               Tuple.set(state, STATE_CLOSED, true),
@@ -289,6 +317,25 @@ export const App = (map) => {
         },
       ];
     })
+    // api: bid
+    .api_(a.bid, (msg) => {
+      check(msg > state[STATE_ACTIVE_AMOUNT]);
+      return [
+        [0, [msg, activeToken]],
+        (k) => {
+          k(null);
+          return [
+            Tuple.set(
+              Tuple.set(state, STATE_ACTIVE_AMOUNT, msg),
+              STATE_ACTIVE_ADDRESS,
+              this
+            ),
+            who,
+            pTake,
+          ];
+        },
+      ];
+    })
     // api: cancels auction
     .api_(a.cancel, () => {
       check(this === Auctioneer);
@@ -296,6 +343,9 @@ export const App = (map) => {
         (k) => {
           k(null);
           transfer([acceptFee, [tokenAmount, token]]).to(this);
+          transfer(state[STATE_ACTIVE_AMOUNT], activeToken).to(
+            state[STATE_ACTIVE_ADDRESS]
+          );
           return [Tuple.set(state, STATE_CLOSED, true), who, pTake];
         },
       ];
@@ -307,7 +357,7 @@ export const App = (map) => {
   // Step
   Relay.publish();
   ((recvAmount, pDistr) => {
-    transfer(pDistr[0]).to(addrs[0]);
+    transfer(pDistr[0]).to(addrs[1]);
     transfer(pDistr[1]).to(addrs[1]);
     transfer(pDistr[2]).to(addrs[2]);
     transfer(pDistr[3]).to(addrs[3]);
