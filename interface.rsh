@@ -4,8 +4,8 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 1.0.1 - fix token balance invariant
-// Requires Reach v0.1.11-rc7 or later
+// Version: 1.0.2 - use Struct/Object instead of Tuple
+// Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 
 // IMPORTS
@@ -38,8 +38,8 @@ const priceFunc =
     max(
       floorPrice,
       ((diff) => {
-        // if is lazy, ? is not lazy (startPrice - diff can underflow)
-        //? is now lazy in a future version of reach, update later
+        // REM if is lazy, ? is not lazy (startPrice - diff can underflow)
+        // TODO ? is now lazy in a future version of reach, update later after reach-v0.1.11-rc7
         if (startPrice <= diff) {
           return floorPrice;
         } else {
@@ -59,6 +59,17 @@ const calc = (d, d2, p) => {
   const fD2 = fx(6)(Pos, d2);
   return fxdiv(fD, fD2, p);
 };
+
+/*
+ * safePercent
+ * recommended way of calculating percent of a number
+ * where percentPrecision is like 10_000 and percentage is like 500, meaning 5%
+ */
+const safePercent = (amount, percentage, percentPrecision) =>
+  UInt(
+    (UInt256(amount) * UInt256(percentPrecision) * UInt256(percentage)) /
+      UInt256(percentPrecision)
+  );
 
 // INTERACTS
 
@@ -89,21 +100,22 @@ export const Participants = () => [
   ParticipantClass("Relay", relayInteract),
 ];
 
-const State = Object({
-  manager: Address,
-  token: Token,
-  tokenAmount: UInt,
-  currentPrice: UInt,
-  startPrice: UInt,
-  floorPrice: UInt,
-  closed: Bool,
-  endSecs: UInt,
-  priceChagePerSec: UInt,
-  addrs: Array(Address, DIST_LENGTH),
-  distr: Array(UInt, DIST_LENGTH),
-  royaltyCap: UInt,
-  who: Address,
-});
+const State = Struct([
+  ["manager", Address],
+  ["token", Token],
+  ["tokenAmount", UInt],
+  ["currentPrice", UInt],
+  ["startPrice", UInt],
+  ["floorPrice", UInt],
+  ["closed", Bool],
+  ["endSecs", UInt],
+  ["priceChangePerSec", UInt],
+  ["addrs", Array(Address, DIST_LENGTH)],
+  ["distr", Array(UInt, DIST_LENGTH)],
+  ["royaltyCap", UInt],
+  ["who", Address],
+  ["partTake", UInt],
+]);
 
 export const Views = () => [
   View({
@@ -158,16 +170,15 @@ export const App = (map) => {
     relayFee
   )
     .check(() => {
-      check(tokenAmount > 0);
-      check(floorPrice > 0);
-      check(floorPrice <= startPrice); // fp < sp => auction, fp == sp => sale
-      check(endSecs > 0);
-      // no checks for addrs
-      check(distr.sum() <= royaltyCap);
-      check(royaltyCap == (10 * floorPrice) / 1000000);
-      check(acceptFee >= FEE_MIN_ACCEPT);
-      check(constructFee >= FEE_MIN_CONSTRUCT);
-      check(relayFee >= FEE_MIN_RELAY);
+      check(tokenAmount > 0, "tokenAmount must be greater than 0");
+      check(floorPrice > 0, "floorPrice must be greater than 0");
+      check(floorPrice <= startPrice, "floorPrice must be less than or equal to startPrice"); // fp < sp => auction, fp == sp => sale
+      check(endSecs > 0, "endSecs must be greater than 0");
+      check(distr.sum() <= royaltyCap, "distr sum must be less than or equal to royaltyCap");
+      check(royaltyCap == (10 * floorPrice) / 1000000, "royaltyCap must be 10x of floorPrice");
+      check(acceptFee >= FEE_MIN_ACCEPT, "acceptFee must be greater than or equal to minimum accept fee");
+      check(constructFee >= FEE_MIN_CONSTRUCT, "constructFee must be greater than or equal to minimum construct fee");
+      check(relayFee >= FEE_MIN_RELAY, "relayFee must be greater than or equal to minimum relay fee");
     })
     .pay([
       amt + (constructFee + acceptFee + relayFee) + SERIAL_VER,
@@ -183,7 +194,7 @@ export const App = (map) => {
 
   Auctioneer.interact.signal();
 
-  const distrTake = distr.slice(0, DIST_LENGTH).sum();
+  const distrTake = distr.sum();
 
   const referenceConcensusSecs = thisConsensusSecs();
 
@@ -206,18 +217,19 @@ export const App = (map) => {
     addrs,
     distr,
     royaltyCap: royaltyCap,
-    who: Auctioneer
+    who: Auctioneer,
+    partTake: 0,
   };
 
   // Step
 
-  const [state, pTake] = parallelReduce([initialState, 0])
+  const [state] = parallelReduce([initialState])
     .define(() => {
-      v.state.set(state);
+      v.state.set(State.fromObject(state));
     })
     .invariant(
       implies(!state.closed, balance(token) == tokenAmount),
-      "token balance accurate before close"
+      "token balance accurate before closed"
     )
     .invariant(
       implies(state.closed, balance(token) == 0),
@@ -225,8 +237,15 @@ export const App = (map) => {
     )
     .invariant(
       implies(!state.closed, balance() == acceptFee + relayFee),
-      "balance accurate"
+      "balance accurate before close"
     )
+    // TODO add invariant balance accurate after close
+    /*
+    .invariant(
+      implies(state.closed, balance() == relayFee + distrTake * state.partTake),
+      "balance accurate after close"
+    )
+    */
     .while(!state.closed)
     // api: updates current price
     .api_(a.touch, () => {
@@ -244,7 +263,6 @@ export const App = (map) => {
                 dk
               ),
             },
-            pTake,
           ];
         },
       ];
@@ -263,10 +281,11 @@ export const App = (map) => {
           );
           // expect state[cp] >= bal
           const diff = state.currentPrice - bal;
-          const cent = bal / 100;
-          const partTake = (bal - cent) / royaltyCap;
+          const cent = safePercent(bal, 1_000_000, 1_000); // 1%
+          const remaining = bal - cent;
+          const partTake = remaining / royaltyCap;
           const proceedTake = partTake * distrTake;
-          const sellerTake = bal - cent - proceedTake;
+          const sellerTake = remaining - proceedTake;
           transfer(cent).to(addr);
           transfer(sellerTake).to(Auctioneer);
           transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
@@ -275,8 +294,9 @@ export const App = (map) => {
               ...state,
               currentPrice: bal,
               who: this,
+              closed: true,
+              partTake,
             },
-            partTake,
           ];
         },
       ];
@@ -293,7 +313,6 @@ export const App = (map) => {
               ...state,
               closed: true,
             },
-            pTake,
           ];
         },
       ];
@@ -301,8 +320,8 @@ export const App = (map) => {
     .timeout(false);
   commit();
 
-  // Step
   Relay.publish();
+  // Step
   ((recvAmount, pDistr) => {
     transfer(pDistr[0]).to(addrs[0]);
     transfer(pDistr[1]).to(addrs[1]);
@@ -328,8 +347,8 @@ export const App = (map) => {
     commit();
     exit();
   })(
-    balance() - pTake * distrTake,
-    distr.map((d) => d * pTake)
+    balance() - distrTake * state.partTake,
+    distr.map((d) => d * state.partTake)
   );
 };
 // -----------------------------------------------
