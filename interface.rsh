@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 1.1.0 - add curator fee
+// Version: 1.1.1 - add timestamp
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -123,6 +123,7 @@ const State = Struct([
   ["relayFee", UInt],
   ["curatorFee", UInt],
   ["curatorAddr", Address],
+  ["timestamp", UInt],
 ]);
 
 export const Views = () => [
@@ -255,6 +256,7 @@ export const App = (map) => {
     relayFee,
     curatorFee,
     curatorAddr: Auctioneer,
+    timestamp: referenceConcensusSecs
   };
 
   // Step
