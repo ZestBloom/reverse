@@ -4,9 +4,10 @@
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
 // Author: Nicholas Shellabarger
-// Version: 1.0.2 - use Struct/Object instead of Tuple
+// Version: 1.1.1 - add timestamp
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
+// TODO calculate price change per second with more precision
 
 // IMPORTS
 
@@ -18,9 +19,10 @@ const SERIAL_VER = 0; // serial version of reach app reserved to release identic
 
 const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 6000;
-const FEE_MIN_CONSTRUCT = 5000;
-const FEE_MIN_RELAY = 17000;
+const FEE_MIN_ACCEPT = 6_000; // 0.006
+const FEE_MIN_CONSTRUCT = 5_000; // 0.005
+const FEE_MIN_RELAY = 1_7000; // 0.017
+const FEE_MIN_CURATOR = 10_000; // 0.1
 
 // FUNCS
 
@@ -86,6 +88,7 @@ const Params = Object({
   acceptFee: UInt, // 0.008
   constructFee: UInt, // 0.006
   relayFee: UInt, // 0.007
+  curatorFee: UInt, // 0.1
 });
 
 const auctioneerInteract = {
@@ -115,6 +118,12 @@ const State = Struct([
   ["royaltyCap", UInt],
   ["who", Address],
   ["partTake", UInt],
+  ["acceptFee", UInt],
+  ["constructFee", UInt],
+  ["relayFee", UInt],
+  ["curatorFee", UInt],
+  ["curatorAddr", Address],
+  ["timestamp", UInt],
   ["activeAmount", UInt],
   ["activeAccount", Address],
 ]);
@@ -128,7 +137,7 @@ export const Views = () => [
 export const Api = () => [
   API({
     touch: Fun([], Null),
-    acceptOffer: Fun([], Null),
+    acceptOffer: Fun([Address], Null),
     cancel: Fun([], Null),
     bid: Fun([UInt], Null),
   }),
@@ -155,6 +164,7 @@ export const App = (map) => {
       acceptFee,
       constructFee,
       relayFee,
+      curatorFee,
     } = declassify(interact.getParams());
   });
 
@@ -169,7 +179,8 @@ export const App = (map) => {
     royaltyCap,
     acceptFee,
     constructFee,
-    relayFee
+    relayFee,
+    curatorFee
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -199,9 +210,16 @@ export const App = (map) => {
         relayFee >= FEE_MIN_RELAY,
         "relayFee must be greater than or equal to minimum relay fee"
       );
+<<<<<<< HEAD
+=======
+      check(
+        curatorFee >= FEE_MIN_CURATOR,
+        "curatorFee must be greater than or equal to minimum curator fee"
+      );
+>>>>>>> algo19v3
     })
     .pay([
-      amt + (constructFee + acceptFee + relayFee) + SERIAL_VER,
+      amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
       [tokenAmount, token],
     ])
     .timeout(relativeTime(ttl), () => {
@@ -239,12 +257,17 @@ export const App = (map) => {
     royaltyCap: royaltyCap,
     who: Auctioneer,
     partTake: 0,
+    acceptFee,
+    constructFee,
+    relayFee,
+    curatorFee,
+    curatorAddr: Auctioneer,
+    timestamp: referenceConcensusSecs,
     activeAmount: 0,
     activeAccount: Auctioneer,
   };
 
   // Step
-
   const [state] = parallelReduce([initialState])
     .define(() => {
       v.state.set(State.fromObject(state));
@@ -280,7 +303,7 @@ export const App = (map) => {
     )
     */
     .invariant(
-      implies(!(state.closed), balance() == acceptFee + relayFee),
+      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
       "balance accurate before close"
     )
     // TODO add invariant balance accurate after close
@@ -313,7 +336,8 @@ export const App = (map) => {
       ];
     })
     // api: accepts offer
-    .api_(a.acceptOffer, () => {
+    .api_(a.acceptOffer, (cAddr) => {
+      check(cAddr != this, "cannot accept offer as curator");
       return [
         [state.currentPrice, [0, activeToken]],
         (k) => {
@@ -338,6 +362,7 @@ export const App = (map) => {
             [tokenAmount, token],
             [state.activeAmount, activeToken],
           ]).to(this);
+          transfer(curatorFee).to(cAddr);
           return [
             {
               ...state,
@@ -345,6 +370,7 @@ export const App = (map) => {
               who: this,
               closed: true,
               partTake,
+              curatorAddr: cAddr,
             },
           ];
         },
