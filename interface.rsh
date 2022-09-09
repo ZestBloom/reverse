@@ -4,9 +4,10 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 1.0.2 - use Struct/Object instead of Tuple
+// Version: 1.1.0 - add curator fee
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
+// TODO calculate price change per second with more precision
 
 // IMPORTS
 
@@ -18,9 +19,10 @@ const SERIAL_VER = 0; // serial version of reach app reserved to release identic
 
 const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 6000;
-const FEE_MIN_CONSTRUCT = 5000;
-const FEE_MIN_RELAY = 17000;
+const FEE_MIN_ACCEPT = 6_000; // 0.006
+const FEE_MIN_CONSTRUCT = 5_000; // 0.005
+const FEE_MIN_RELAY = 1_7000; // 0.017
+const FEE_MIN_CURATOR = 10_000; // 0.1
 
 // FUNCS
 
@@ -86,6 +88,7 @@ const Params = Object({
   acceptFee: UInt, // 0.008
   constructFee: UInt, // 0.006
   relayFee: UInt, // 0.007
+  curatorFee: UInt, // 0.1
 });
 
 const auctioneerInteract = {
@@ -115,6 +118,11 @@ const State = Struct([
   ["royaltyCap", UInt],
   ["who", Address],
   ["partTake", UInt],
+  ["acceptFee", UInt],
+  ["constructFee", UInt],
+  ["relayFee", UInt],
+  ["curatorFee", UInt],
+  ["curatorAddr", Address],
 ]);
 
 export const Views = () => [
@@ -126,7 +134,7 @@ export const Views = () => [
 export const Api = () => [
   API({
     touch: Fun([], Null),
-    acceptOffer: Fun([], Null),
+    acceptOffer: Fun([Address], Null),
     cancel: Fun([], Null),
   }),
 ];
@@ -152,6 +160,7 @@ export const App = (map) => {
       acceptFee,
       constructFee,
       relayFee,
+      curatorFee,
     } = declassify(interact.getParams());
   });
 
@@ -166,21 +175,44 @@ export const App = (map) => {
     royaltyCap,
     acceptFee,
     constructFee,
-    relayFee
+    relayFee,
+    curatorFee
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
       check(floorPrice > 0, "floorPrice must be greater than 0");
-      check(floorPrice <= startPrice, "floorPrice must be less than or equal to startPrice"); // fp < sp => auction, fp == sp => sale
+      check(
+        floorPrice <= startPrice,
+        "floorPrice must be less than or equal to startPrice"
+      ); // fp < sp => auction, fp == sp => sale
       check(endSecs > 0, "endSecs must be greater than 0");
-      check(distr.sum() <= royaltyCap, "distr sum must be less than or equal to royaltyCap");
-      check(royaltyCap == (10 * floorPrice) / 1000000, "royaltyCap must be 10x of floorPrice");
-      check(acceptFee >= FEE_MIN_ACCEPT, "acceptFee must be greater than or equal to minimum accept fee");
-      check(constructFee >= FEE_MIN_CONSTRUCT, "constructFee must be greater than or equal to minimum construct fee");
-      check(relayFee >= FEE_MIN_RELAY, "relayFee must be greater than or equal to minimum relay fee");
+      check(
+        distr.sum() <= royaltyCap,
+        "distr sum must be less than or equal to royaltyCap"
+      );
+      check(
+        royaltyCap == (10 * floorPrice) / 1000000,
+        "royaltyCap must be 10x of floorPrice"
+      );
+      check(
+        acceptFee >= FEE_MIN_ACCEPT,
+        "acceptFee must be greater than or equal to minimum accept fee"
+      );
+      check(
+        constructFee >= FEE_MIN_CONSTRUCT,
+        "constructFee must be greater than or equal to minimum construct fee"
+      );
+      check(
+        relayFee >= FEE_MIN_RELAY,
+        "relayFee must be greater than or equal to minimum relay fee"
+      );
+      check(
+        curatorFee >= FEE_MIN_CURATOR,
+        "curatorFee must be greater than or equal to minimum curator fee"
+      );
     })
     .pay([
-      amt + (constructFee + acceptFee + relayFee) + SERIAL_VER,
+      amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
       [tokenAmount, token],
     ])
     .timeout(relativeTime(ttl), () => {
@@ -218,10 +250,14 @@ export const App = (map) => {
     royaltyCap: royaltyCap,
     who: Auctioneer,
     partTake: 0,
+    acceptFee,
+    constructFee,
+    relayFee,
+    curatorFee,
+    curatorAddr: Auctioneer,
   };
 
   // Step
-
   const [state] = parallelReduce([initialState])
     .define(() => {
       v.state.set(State.fromObject(state));
@@ -235,7 +271,7 @@ export const App = (map) => {
       "token balance accurate after closed"
     )
     .invariant(
-      implies(!state.closed, balance() == acceptFee + relayFee),
+      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
       "balance accurate before close"
     )
     // TODO add invariant balance accurate after close
@@ -267,7 +303,8 @@ export const App = (map) => {
       ];
     })
     // api: accepts offer
-    .api_(a.acceptOffer, () => {
+    .api_(a.acceptOffer, (cAddr) => {
+      check(cAddr != this, "cannot accept offer as curator");
       return [
         state.currentPrice,
         (k) => {
@@ -288,6 +325,7 @@ export const App = (map) => {
           transfer(cent).to(addr);
           transfer(sellerTake).to(Auctioneer);
           transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
+          transfer(curatorFee).to(cAddr);
           return [
             {
               ...state,
@@ -295,6 +333,7 @@ export const App = (map) => {
               who: this,
               closed: true,
               partTake,
+              curatorAddr: cAddr,
             },
           ];
         },
