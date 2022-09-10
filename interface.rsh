@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
 // Author: Nicholas Shellabarger
-// Version: 1.1.1 - add timestamp
+// Version: 1.2.0 - a1 initial
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -17,7 +17,7 @@ import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
 const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
 
-const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
+const DIST_LENGTH = 8; // number of slots to distribute proceeds after sale
 
 const FEE_MIN_ACCEPT = 6_000; // 0.006
 const FEE_MIN_CONSTRUCT = 5_000; // 0.005
@@ -210,13 +210,10 @@ export const App = (map) => {
         relayFee >= FEE_MIN_RELAY,
         "relayFee must be greater than or equal to minimum relay fee"
       );
-<<<<<<< HEAD
-=======
       check(
         curatorFee >= FEE_MIN_CURATOR,
         "curatorFee must be greater than or equal to minimum curator fee"
       );
->>>>>>> algo19v3
     })
     .pay([
       amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
@@ -266,12 +263,15 @@ export const App = (map) => {
     activeAmount: 0,
     activeAccount: Auctioneer,
   };
+      
+  v.state.set(State.fromObject(initialState));
 
   // Step
   const [state] = parallelReduce([initialState])
     .define(() => {
       v.state.set(State.fromObject(state));
     })
+    // ACTIVE TOKEN BALANCE
     .invariant(
       implies(!(state.closed), balance(token) == tokenAmount),
       "token balance accurate before closed"
@@ -280,39 +280,21 @@ export const App = (map) => {
       implies(state.closed, balance(token) == 0),
       "token balance accurate after closed"
     )
+    // ACTIVE TOKEN BALANCE 
     .invariant(
       implies(!(state.closed), balance(activeToken) == state.activeAmount),
       "active token balance accurate before closed"
     )
     .invariant(
       implies(state.closed, balance(activeToken) == 0),
-      "active token balance accurate after closed"
-    )
-     
-    /*
-    .invariant(
-      implies(
-        !state[STATE_CLOSED],
-        balance(activeToken) == state[STATE_ACTIVE_AMOUNT]
-      ),
       "active token balance accurate before closed"
     )
+    // BALANCE
     .invariant(
-      implies(state[STATE_CLOSED], balance(activeToken) == 0),
-      "active token balance accurate after closed"
-    )
-    */
-    .invariant(
-      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
+      implies(!(state.closed), balance() == acceptFee + relayFee + curatorFee),
       "balance accurate before close"
     )
-    // TODO add invariant balance accurate after close
-    /*
-    .invariant(
-      implies(state.closed, balance() == relayFee + distrTake * state.partTake),
-      "balance accurate after close"
-    )
-    */
+    // REM missing invariant balance accurate after close
     .while(!state.closed)
     .paySpec([activeToken])
     // api: updates current price
@@ -383,11 +365,12 @@ export const App = (map) => {
         [0, [msg, activeToken]],
         (k) => {
           k(null);
+          transfer(state.activeAmount, activeToken).to(state.activeAccount);
           return [
             {
               ...state,
               activeAmount: msg,
-              activeAccount: this,
+              activeAccount: this
             }
           ];
         },
@@ -399,7 +382,7 @@ export const App = (map) => {
       return [
         (k) => {
           k(null);
-          transfer([acceptFee, [tokenAmount, token]]).to(this);
+          transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
           transfer(state.activeAmount, activeToken).to(state.activeAccount);
           return [
             {
@@ -435,9 +418,7 @@ export const App = (map) => {
     });
     // Step
     Relay.publish(rAddr);
-    transfer(pDistr[8]).to(addrs[8]);
     transfer(recvAmount).to(rAddr);
-    transfer(balance(activeToken), activeToken).to(rAddr);
     commit();
     exit();
   })(
