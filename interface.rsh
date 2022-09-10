@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: ALGO/ETH/CFX NFT Jam Reverse Auction
 // Author: Nicholas Shellabarger
-// Version: 1.1.1 - add timestamp
+// Version: 1.1.2 - add missing curator fee return
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -347,7 +347,7 @@ export const App = (map) => {
       return [
         (k) => {
           k(null);
-          transfer([acceptFee, [tokenAmount, token]]).to(this);
+          transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
           return [
             {
               ...state,
