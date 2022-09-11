@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
 // Author: Nicholas Shellabarger
-// Version: 1.2.0 - a1 initial
+// Version: 1.2.1 - fix cent calc issue
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -23,6 +23,7 @@ const FEE_MIN_ACCEPT = 6_000; // 0.006
 const FEE_MIN_CONSTRUCT = 5_000; // 0.005
 const FEE_MIN_RELAY = 1_7000; // 0.017
 const FEE_MIN_CURATOR = 10_000; // 0.1
+//const FEE_MIN_BID = 4_000;
 
 // FUNCS
 
@@ -125,7 +126,7 @@ const State = Struct([
   ["curatorAddr", Address],
   ["timestamp", UInt],
   ["activeAmount", UInt],
-  ["activeAccount", Address],
+  ["activeAddr", Address],
 ]);
 
 export const Views = () => [
@@ -261,9 +262,9 @@ export const App = (map) => {
     curatorAddr: Auctioneer,
     timestamp: referenceConcensusSecs,
     activeAmount: 0,
-    activeAccount: Auctioneer,
+    activeAddr: Auctioneer,
   };
-      
+
   v.state.set(State.fromObject(initialState));
 
   // Step
@@ -273,16 +274,16 @@ export const App = (map) => {
     })
     // ACTIVE TOKEN BALANCE
     .invariant(
-      implies(!(state.closed), balance(token) == tokenAmount),
+      implies(!state.closed, balance(token) == tokenAmount),
       "token balance accurate before closed"
     )
     .invariant(
       implies(state.closed, balance(token) == 0),
       "token balance accurate after closed"
     )
-    // ACTIVE TOKEN BALANCE 
+    // ACTIVE TOKEN BALANCE
     .invariant(
-      implies(!(state.closed), balance(activeToken) == state.activeAmount),
+      implies(!state.closed, balance(activeToken) == state.activeAmount),
       "active token balance accurate before closed"
     )
     .invariant(
@@ -291,7 +292,7 @@ export const App = (map) => {
     )
     // BALANCE
     .invariant(
-      implies(!(state.closed), balance() == acceptFee + relayFee + curatorFee),
+      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
       "balance accurate before close"
     )
     // REM missing invariant balance accurate after close
@@ -332,18 +333,14 @@ export const App = (map) => {
           );
           // expect state[cp] >= bal
           const diff = state.currentPrice - bal;
-          const cent = safePercent(bal, 1_000_000, 1_000); // 1%
+          const cent = bal / 100;
           const remaining = bal - cent;
           const partTake = remaining / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = remaining - proceedTake;
-          transfer(cent).to(addr);
+          transfer([cent, [state.activeAmount, activeToken]]).to(addr);
           transfer(sellerTake).to(Auctioneer);
-          transfer([
-            acceptFee + diff,
-            [tokenAmount, token],
-            [state.activeAmount, activeToken],
-          ]).to(this);
+          transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
           transfer(curatorFee).to(cAddr);
           return [
             {
@@ -351,8 +348,8 @@ export const App = (map) => {
               currentPrice: bal,
               who: this,
               closed: true,
-              partTake,
               curatorAddr: cAddr,
+              partTake,
             },
           ];
         },
@@ -360,30 +357,30 @@ export const App = (map) => {
     })
     // api: bid
     .api_(a.bid, (msg) => {
-      check(msg > state.activeAmount);
+      check(msg > state.activeAmount, "bid must be greater than active amount");
       return [
         [0, [msg, activeToken]],
         (k) => {
           k(null);
-          transfer(state.activeAmount, activeToken).to(state.activeAccount);
+          transfer(state.activeAmount, activeToken).to(state.activeAddr);
           return [
             {
               ...state,
               activeAmount: msg,
-              activeAccount: this
-            }
+              activeAddr: this,
+            },
           ];
         },
       ];
     })
     // api: cancels auction
     .api_(a.cancel, () => {
-      check(this === Auctioneer);
+      check(this == Auctioneer, "only auctioneer can cancel");
       return [
         (k) => {
           k(null);
           transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
-          transfer(state.activeAmount, activeToken).to(state.activeAccount);
+          transfer(state.activeAmount, activeToken).to(state.activeAddr);
           return [
             {
               ...state,
@@ -399,7 +396,7 @@ export const App = (map) => {
   Relay.publish();
   // Step
   ((recvAmount, pDistr) => {
-    transfer(pDistr[0]).to(addrs[1]);
+    transfer(pDistr[0]).to(state.activeAddr); // reserved
     transfer(pDistr[1]).to(addrs[1]);
     transfer(pDistr[2]).to(addrs[2]);
     transfer(pDistr[3]).to(addrs[3]);
