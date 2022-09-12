@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
 // Author: Nicholas Shellabarger
-// Version: 1.2.1 - fix cent calc issue
+// Version: 1.2.2 - add active token to view
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -125,6 +125,7 @@ const State = Struct([
   ["curatorFee", UInt],
   ["curatorAddr", Address],
   ["timestamp", UInt],
+  ["activeToken", Token],
   ["activeAmount", UInt],
   ["activeAddr", Address],
 ]);
@@ -261,6 +262,7 @@ export const App = (map) => {
     curatorFee,
     curatorAddr: Auctioneer,
     timestamp: referenceConcensusSecs,
+    activeToken,
     activeAmount: 0,
     activeAddr: Auctioneer,
   };
