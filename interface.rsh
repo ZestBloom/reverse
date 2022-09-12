@@ -4,7 +4,7 @@
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
 // Author: Nicholas Shellabarger
-// Version: 1.2.2 - add active token to view
+// Version: 1.2.3 - add bid fee and unlock api
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -19,11 +19,11 @@ const SERIAL_VER = 0; // serial version of reach app reserved to release identic
 
 const DIST_LENGTH = 8; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 6_000; // 0.006
-const FEE_MIN_CONSTRUCT = 5_000; // 0.005
+const FEE_MIN_ACCEPT = 9_000; // 0.006
+const FEE_MIN_CONSTRUCT = 7_000; // 0.005
 const FEE_MIN_RELAY = 1_7000; // 0.017
 const FEE_MIN_CURATOR = 10_000; // 0.1
-//const FEE_MIN_BID = 4_000;
+const FEE_MIN_BID = 1_000; // 0.001
 
 // FUNCS
 
@@ -90,6 +90,7 @@ const Params = Object({
   constructFee: UInt, // 0.006
   relayFee: UInt, // 0.007
   curatorFee: UInt, // 0.1
+  bidFee: UInt, // 0.001
 });
 
 const auctioneerInteract = {
@@ -142,6 +143,7 @@ export const Api = () => [
     acceptOffer: Fun([Address], Null),
     cancel: Fun([], Null),
     bid: Fun([UInt], Null),
+    unlock: Fun([], Null),
   }),
 ];
 
@@ -167,6 +169,7 @@ export const App = (map) => {
       constructFee,
       relayFee,
       curatorFee,
+      bidFee,
     } = declassify(interact.getParams());
   });
 
@@ -182,7 +185,8 @@ export const App = (map) => {
     acceptFee,
     constructFee,
     relayFee,
-    curatorFee
+    curatorFee,
+    bidFee
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -215,6 +219,10 @@ export const App = (map) => {
       check(
         curatorFee >= FEE_MIN_CURATOR,
         "curatorFee must be greater than or equal to minimum curator fee"
+      );
+      check(
+        bidFee >= FEE_MIN_BID,
+        "bidFee must be greater than or equal to minimum bid fee"
       );
     })
     .pay([
@@ -361,9 +369,10 @@ export const App = (map) => {
     .api_(a.bid, (msg) => {
       check(msg > state.activeAmount, "bid must be greater than active amount");
       return [
-        [0, [msg, activeToken]],
+        [bidFee, [msg, activeToken]],
         (k) => {
           k(null);
+          transfer(bidFee).to(addr);
           transfer(state.activeAmount, activeToken).to(state.activeAddr);
           return [
             {
@@ -373,6 +382,21 @@ export const App = (map) => {
             },
           ];
         },
+      ];
+    })
+    // api: claim
+    .api_(a.unlock, () => {
+      check(this == addr, "only master can unlock");
+      return [
+        (k) => {
+          k(null);
+          return [
+            {
+              ...state,
+              activeAddr: this
+            },
+          ];
+        }
       ];
     })
     // api: cancels auction
