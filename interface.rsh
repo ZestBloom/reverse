@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
-// Version: 1.2.4 - use stake
+// Version: 1.2.5 - use data for contract
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -24,11 +24,13 @@ const FEE_MIN_ACCEPT = 9_000; // 0.009
 const FEE_MIN_CONSTRUCT = 7_000; // 0.007
 const FEE_MIN_RELAY = 17_000; // 0.017
 const FEE_MIN_CURATOR = 10_000; // 0.1
-const FEE_MIN_BID = 10_000; // 0.001
 const FEE_MIN_ACTIVE_BID = 1; // some 1
+const FEE_MIN_ACTIVE_ACTIVATION = 1; // some 1
 
 
 // TYPES
+
+const MContract = Maybe(Contract);
 
 const Params = Object({
   tokenAmount: UInt, // NFT token amount
@@ -42,8 +44,8 @@ const Params = Object({
   constructFee: UInt, // 0.006
   relayFee: UInt, // 0.007
   curatorFee: UInt, // 0.1
-  bidFee: UInt, // 0.001
   activeBidFee: UInt, // 0.001
+  activeActivationFee: UInt, // 0.001
 });
 
 const State = Struct([
@@ -72,6 +74,7 @@ const State = Struct([
   ["activeAddr", Address],
   ["activeCtc", Contract],
   ["activeBidFee", UInt],
+  ["activeActivationFee", UInt],
 ]);
 
 // FUNCS
@@ -179,8 +182,8 @@ export const App = (map) => {
       constructFee,
       relayFee,
       curatorFee,
-      bidFee,
       activeBidFee,
+      activeActivationFee,
     } = declassify(interact.getParams());
   });
 
@@ -197,8 +200,8 @@ export const App = (map) => {
     constructFee,
     relayFee,
     curatorFee,
-    bidFee,
-    activeBidFee
+    activeBidFee,
+    activeActivationFee
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -233,18 +236,18 @@ export const App = (map) => {
         "curatorFee must be greater than or equal to minimum curator fee"
       );
       check(
-        bidFee >= FEE_MIN_BID,
-        "bidFee must be greater than or equal to minimum bid fee"
-      );
-      check(
         activeBidFee >= FEE_MIN_ACTIVE_BID,
         "activeBidFee must be greater than or equal to minimum bid fee"
+      );
+      check(
+        activeActivationFee >= FEE_MIN_ACTIVE_ACTIVATION,
+        "activeActivationFee must be greater than or equal to minimum activation fee"
       );
     })
     .pay([
       amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
       [tokenAmount, token],
-      [1_000_000, activeToken],
+      [activeActivationFee, activeToken],
     ])
     .timeout(relativeTime(ttl), () => {
       // Step
@@ -252,7 +255,9 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer([amt + constructFee + SERIAL_VER, [1_000_000, activeToken]]).to(addr);
+  transfer([amt + constructFee + SERIAL_VER, [activeActivationFee, activeToken]]).to(
+    addr
+  );
 
   Auctioneer.interact.signal();
 
@@ -290,12 +295,13 @@ export const App = (map) => {
     activeToken,
     activeAmount: 0,
     activeAddr: Auctioneer,
-    activeCtc: getContract(),
+    activeCtc: getContract(), // ref to self never used
     activeBidFee,
+    activeActivationFee,
   };
 
   // Step
-  const [state] = parallelReduce([initialState])
+  const [state, mctc] = parallelReduce([initialState, MContract.None()])
     .define(() => {
       v.state.set(State.fromObject(state));
     })
@@ -314,7 +320,7 @@ export const App = (map) => {
     .invariant(
       implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
       "balance accurate before close"
-    )
+    )    
     // REM missing invariant balance accurate after close
     .while(!state.closed)
     .paySpec([activeToken])
@@ -338,6 +344,7 @@ export const App = (map) => {
                 dk
               ),
             },
+            mctc,
           ];
         },
       ];
@@ -372,8 +379,10 @@ export const App = (map) => {
           transfer(sellerTake).to(Auctioneer);
           transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
           transfer(curatorFee).to(cAddr);
-          if (getContract() != state.activeCtc) {
-            rUnstake(state.activeCtc);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
           }
           return [
             {
@@ -384,6 +393,7 @@ export const App = (map) => {
               curatorAddr: cAddr,
               partTake,
             },
+            mctc,
           ];
         },
       ];
@@ -398,8 +408,10 @@ export const App = (map) => {
         (k) => {
           k(null);
           transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
-          if (getContract() != state.activeCtc) {
-            rUnstake(state.activeCtc);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
           }
           return [
             {
@@ -407,8 +419,8 @@ export const App = (map) => {
               closed: true,
               activeAmount: 0,
               activeAddr: Auctioneer,
-              activeCtc: getContract(),
             },
+            MContract.None(),
           ];
         },
       ];
@@ -419,17 +431,19 @@ export const App = (map) => {
     //  unlock active token if any
     .api_(a.bid, (ctc) => {
       return [
-        [bidFee, [activeBidFee, activeToken]],
+        [0, [activeBidFee, activeToken]],
         (k) => {
           k(null);
-          transfer([bidFee, [activeBidFee, activeToken]]).to(addr);
+          transfer([0, [activeBidFee, activeToken]]).to(addr);
           const { manager: r1Manager, tokenAmount: r1TokenAmount } = rStake(
             ctc,
             activeToken,
             state.activeAmount
           );
-          if (getContract() != state.activeCtc) {
-            rUnstake(state.activeCtc);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
           }
           return [
             {
@@ -438,6 +452,7 @@ export const App = (map) => {
               activeAddr: r1Manager,
               activeCtc: ctc,
             },
+            MContract.Some(ctc),
           ];
         },
       ];
@@ -450,16 +465,18 @@ export const App = (map) => {
       return [
         (k) => {
           k(null);
-          if (getContract() != state.activeCtc) {
-            rUnstake(state.activeCtc);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
           }
           return [
             {
               ...state,
               activeAmount: 0,
               activeAddr: Auctioneer,
-              activeCtc: getContract(),
             },
+            MContract.None(),
           ];
         },
       ];
@@ -467,7 +484,6 @@ export const App = (map) => {
     .timeout(false);
   commit();
 
-  // Step
   Relay.publish();
   ((recvAmount, pDistr) => {
     transfer(pDistr[0]).to(state.activeAddr); // reserved
