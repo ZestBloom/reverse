@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
-// Version: 1.2.6 - protect relay txn from rt
+// Version: 1.2.7 - protect relay txn from rt
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -22,7 +22,7 @@ const DIST_LENGTH = 8; // number of slots to distribute proceeds after sale
 
 const FEE_MIN_ACCEPT = 9_000; // 0.009
 const FEE_MIN_CONSTRUCT = 7_000; // 0.007
-const FEE_MIN_RELAY = 17_000; // 0.017
+const FEE_MIN_RELAY = 19_000; // 0.019
 const FEE_MIN_CURATOR = 10_000; // 0.1
 const FEE_MIN_ACTIVE_BID = 1; // some 1
 const FEE_MIN_ACTIVE_ACTIVATION = 1; // some 1
@@ -507,10 +507,10 @@ export const App = (map) => {
     Relay.publish(rAddr);
 
     transfer([
+      recvAmount,
       [getUntrackedFunds(token), token],
       [getUntrackedFunds(activeToken), activeToken],
-    ]).to(addr);
-    transfer(recvAmount).to(rAddr);
+    ]).to(rAddr);
     commit();
     exit();
   })(
