@@ -14,11 +14,13 @@ import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
 import { rStake, rUnstake } from "@KinnFoundation/stake#stake-v0.1.11r0:interface.rsh";
 
+import { Params } from "@KinnFoundation/reverse#reverse-v0.1.11r0:interface.rsh";
+
 // CONSTS
 
 const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
 
-const DIST_LENGTH = 8; // number of slots to distribute proceeds after sale
+const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
 
 const FEE_MIN_ACCEPT = 9_000; // 0.009
 const FEE_MIN_CONSTRUCT = 7_000; // 0.007
@@ -27,24 +29,10 @@ const FEE_MIN_CURATOR = 10_000; // 0.1
 const FEE_MIN_BID = 10_000; // 0.001
 const FEE_MIN_ACTIVE_BID = 1; // some 1
 
+const ADDR_RESERVED_ACTIVE_BIDDER = 0;
+const ADDR_RESERVED_CURATOR = 1;
 
 // TYPES
-
-const Params = Object({
-  tokenAmount: UInt, // NFT token amount
-  startPrice: UInt, // 100
-  floorPrice: UInt, // 1
-  endSecs: UInt, // 1
-  addrs: Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
-  distr: Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  royaltyCap: UInt, // 10
-  acceptFee: UInt, // 0.008
-  constructFee: UInt, // 0.006
-  relayFee: UInt, // 0.007
-  curatorFee: UInt, // 0.1
-  bidFee: UInt, // 0.001
-  activeBidFee: UInt, // 0.001
-});
 
 const State = Struct([
   ["manager", Address],
@@ -61,17 +49,17 @@ const State = Struct([
   ["royaltyCap", UInt],
   ["who", Address],
   ["partTake", UInt],
-  ["acceptFee", UInt],
-  ["constructFee", UInt],
-  ["relayFee", UInt],
-  ["curatorFee", UInt],
-  ["curatorAddr", Address],
+  //["acceptFee", UInt],
+  //["constructFee", UInt],
+  //["relayFee", UInt],
+  //["curatorFee", UInt],
+  //["curatorAddr", Address],
   ["timestamp", UInt],
   ["activeToken", Token],
   ["activeAmount", UInt],
-  ["activeAddr", Address],
+  //["activeAddr", Address],
   ["activeCtc", Contract],
-  ["activeBidFee", UInt],
+  //["activeBidFee", UInt],
 ]);
 
 // FUNCS
@@ -126,7 +114,7 @@ const safePercent = (amount, percentage, percentPrecision) =>
 // INTERACTS
 
 const auctioneerInteract = {
-  getParams: Fun([], Params),
+  getParams: Fun([], Params(DIST_LENGTH)),
   signal: Fun([], Null),
 };
 
@@ -152,6 +140,7 @@ export const Api = () => [
     touch: Fun([], Null),
     acceptOffer: Fun([Address], Null),
     cancel: Fun([], Null),
+    buy: Fun([Address], Null),
     bid: Fun([Contract], Null),
     bidCancel: Fun([], Null),
   }),
@@ -175,12 +164,12 @@ export const App = (map) => {
       addrs,
       distr,
       royaltyCap,
-      acceptFee,
-      constructFee,
-      relayFee,
-      curatorFee,
-      bidFee,
-      activeBidFee,
+      //acceptFee,
+      //constructFee,
+      //relayFee,
+      //curatorFee,
+      //bidFee,
+      //activeBidFee,
     } = declassify(interact.getParams());
   });
 
@@ -192,13 +181,13 @@ export const App = (map) => {
     endSecs,
     addrs,
     distr,
-    royaltyCap,
-    acceptFee,
-    constructFee,
-    relayFee,
-    curatorFee,
-    bidFee,
-    activeBidFee
+    royaltyCap
+    //acceptFee,
+    //constructFee,
+    //relayFee,
+    //curatorFee,
+    //bidFee,
+    //activeBidFee
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -216,33 +205,47 @@ export const App = (map) => {
         royaltyCap == (10 * floorPrice) / 1000000,
         "royaltyCap must be 10x of floorPrice"
       );
+      /*
       check(
         acceptFee >= FEE_MIN_ACCEPT,
         "acceptFee must be greater than or equal to minimum accept fee"
       );
+      */
+      /*
       check(
         constructFee >= FEE_MIN_CONSTRUCT,
         "constructFee must be greater than or equal to minimum construct fee"
       );
+      */
+      /*
       check(
         relayFee >= FEE_MIN_RELAY,
         "relayFee must be greater than or equal to minimum relay fee"
       );
+      */
+      /*
       check(
         curatorFee >= FEE_MIN_CURATOR,
         "curatorFee must be greater than or equal to minimum curator fee"
       );
+      */
+      /*
       check(
         bidFee >= FEE_MIN_BID,
         "bidFee must be greater than or equal to minimum bid fee"
       );
+      */
+      /*
       check(
         activeBidFee >= FEE_MIN_ACTIVE_BID,
         "activeBidFee must be greater than or equal to minimum bid fee"
       );
+      */
     })
     .pay([
-      amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
+      amt +
+        /*constructFee +*/ /*acceptFee +*/ /*relayFee*/ /*+ curatorFee*/ 0 +
+        SERIAL_VER,
       [tokenAmount, token],
       [1_000_000, activeToken],
     ])
@@ -252,7 +255,9 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer([amt + constructFee + SERIAL_VER, [1_000_000, activeToken]]).to(addr);
+  transfer([amt + /*constructFee +*/ SERIAL_VER, [1_000_000, activeToken]]).to(
+    addr
+  );
 
   Auctioneer.interact.signal();
 
@@ -281,17 +286,17 @@ export const App = (map) => {
     royaltyCap: royaltyCap,
     who: Auctioneer,
     partTake: 0,
-    acceptFee,
-    constructFee,
-    relayFee,
-    curatorFee,
-    curatorAddr: Auctioneer,
+    //acceptFee,
+    //constructFee,
+    //relayFee,
+    //curatorFee,
+    //curatorAddr: Auctioneer,
     timestamp: referenceConcensusSecs,
     activeToken,
     activeAmount: 0,
-    activeAddr: Auctioneer,
+    //activeAddr: Auctioneer,
     activeCtc: getContract(),
-    activeBidFee,
+    //activeBidFee,
   };
 
   // Step
@@ -312,7 +317,10 @@ export const App = (map) => {
     .invariant(balance(activeToken) == 0, "active token balance accurate")
     // BALANCE
     .invariant(
-      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
+      implies(
+        !state.closed,
+        balance() == /*acceptFee +*/ /*relayFee*/ /*+ curatorFee*/ 0
+      ),
       "balance accurate before close"
     )
     // REM missing invariant balance accurate after close
@@ -337,6 +345,34 @@ export const App = (map) => {
                 referenceConcensusSecs,
                 dk
               ),
+            },
+          ];
+        },
+      ];
+    })
+    .api_(a.buy, (cAddr) => {
+      return [
+        [state.currentPrice, [0, activeToken]],
+        (k) => {
+          k(null);
+          const bal = state.currentPrice;
+          const cent = bal / 100;
+          const remaining = bal - cent;
+          const partTake = remaining / royaltyCap;
+          const proceedTake = partTake * distrTake;
+          const sellerTake = remaining - proceedTake;
+          transfer(cent).to(addr);
+          transfer(sellerTake).to(Auctioneer);
+          transfer([/*acceptFee,*/ [tokenAmount, token]]).to(this);
+          if (getContract() != state.activeCtc) {
+            rUnstake(state.activeCtc);
+          }
+          return [
+            {
+              ...state,
+              partTake,
+              closed: true,
+              addrs: Array.set(state.addrs, ADDR_RESERVED_CURATOR, cAddr),
             },
           ];
         },
@@ -370,8 +406,8 @@ export const App = (map) => {
           const sellerTake = remaining - proceedTake;
           transfer(cent).to(addr);
           transfer(sellerTake).to(Auctioneer);
-          transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
-          transfer(curatorFee).to(cAddr);
+          transfer([/*acceptFee +*/ diff, [tokenAmount, token]]).to(this);
+          //transfer(curatorFee).to(cAddr);
           if (getContract() != state.activeCtc) {
             rUnstake(state.activeCtc);
           }
@@ -381,7 +417,7 @@ export const App = (map) => {
               currentPrice: bal,
               who: this,
               closed: true,
-              curatorAddr: cAddr,
+              addrs: Array.set(state.addrs, ADDR_RESERVED_CURATOR, cAddr),
               partTake,
             },
           ];
@@ -397,7 +433,9 @@ export const App = (map) => {
       return [
         (k) => {
           k(null);
-          transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
+          transfer([
+            /*acceptFee*/ /*+ curatorFee*/ /*,*/ [tokenAmount, token],
+          ]).to(this);
           if (getContract() != state.activeCtc) {
             rUnstake(state.activeCtc);
           }
@@ -406,7 +444,7 @@ export const App = (map) => {
               ...state,
               closed: true,
               activeAmount: 0,
-              activeAddr: Auctioneer,
+              addrs: Array.set(state.addrs, ADDR_RESERVED_ACTIVE_BIDDER, this),
               activeCtc: getContract(),
             },
           ];
@@ -419,10 +457,10 @@ export const App = (map) => {
     //  unlock active token if any
     .api_(a.bid, (ctc) => {
       return [
-        [bidFee, [activeBidFee, activeToken]],
+        [/*bidFee, */ 0, [1, activeToken]],
         (k) => {
           k(null);
-          transfer([bidFee, [activeBidFee, activeToken]]).to(addr);
+          transfer([/*bidFee, */ 0, [1, activeToken]]).to(addr);
           const { manager: r1Manager, tokenAmount: r1TokenAmount } = rStake(
             ctc,
             activeToken,
@@ -434,8 +472,12 @@ export const App = (map) => {
           return [
             {
               ...state,
+              addrs: Array.set(
+                state.addrs,
+                ADDR_RESERVED_ACTIVE_BIDDER,
+                r1Manager
+              ),
               activeAmount: r1TokenAmount,
-              activeAddr: r1Manager,
               activeCtc: ctc,
             },
           ];
@@ -446,7 +488,7 @@ export const App = (map) => {
     // allows the bidder to cancel their bid
     // unstakes active token if any
     .api_(a.bidCancel, () => {
-      check(this == state.activeAddr, "only active bidder can cancel bid");
+      check(this == addrs[ADDR_RESERVED_ACTIVE_BIDDER], "only active bidder can cancel bid");
       return [
         (k) => {
           k(null);
@@ -457,7 +499,7 @@ export const App = (map) => {
             {
               ...state,
               activeAmount: 0,
-              activeAddr: Auctioneer,
+              addrs: Array.set(state.addrs, ADDR_RESERVED_ACTIVE_BIDDER, Auctioneer),
               activeCtc: getContract(),
             },
           ];
@@ -470,8 +512,8 @@ export const App = (map) => {
   // Step
   Relay.publish();
   ((recvAmount, pDistr) => {
-    transfer(pDistr[0]).to(state.activeAddr); // reserved
-    transfer(pDistr[1]).to(addrs[1]);
+    transfer(pDistr[0]).to(state.addrs[0]); // immutable reserved for active bidder
+    transfer(pDistr[1]).to(state.addrs[1]); // immutable reserved for curator
     transfer(pDistr[2]).to(addrs[2]);
     transfer(pDistr[3]).to(addrs[3]);
     commit();
@@ -490,6 +532,7 @@ export const App = (map) => {
     // Step
     Relay.publish(rAddr);
     transfer(recvAmount).to(rAddr);
+    transfer(pDistr[8]).to(addrs[8]);
     commit();
     exit();
   })(
