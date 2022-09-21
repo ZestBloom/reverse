@@ -3,8 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
-// Author: Nicholas Shellabarger
-// Version: 1.2.3 - add bid fee and unlock api
+// Version: 1.2.7 - protect relay txn from rt
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -13,17 +12,37 @@
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
+import { rStake, rUnstake } from "@KinnFoundation/stake#stake-v0.1.11r0:interface.rsh";
+
+import { Params, State as ReverseState, MContract } from "@KinnFoundation/reverse#reverse-v0.1.11r3:interface.rsh";
+
 // CONSTS
 
 const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
 
-const DIST_LENGTH = 8; // number of slots to distribute proceeds after sale
+const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 9_000; // 0.006
-const FEE_MIN_CONSTRUCT = 7_000; // 0.005
-const FEE_MIN_RELAY = 1_7000; // 0.017
-const FEE_MIN_CURATOR = 10_000; // 0.1
-const FEE_MIN_BID = 1_000; // 0.001
+const FEE_MIN_ACCEPT = 8_000; // 0.008
+const FEE_MIN_CONSTRUCT = 7_000; // 0.007
+const FEE_MIN_RELAY = 20_000; // 0.019 + 0.001
+const FEE_MIN_ACTIVE_BID = 1; // 1au
+const FEE_MIN_ACTIVE_ACTIVATION = 1; // 1au
+
+const ADDR_RESERVED_ACTIVE_BIDDER = 0;
+const ADDR_RESERVED_CURATOR = 1;
+
+// TYPES
+
+const ActiveState = Struct([
+  ["activeToken", Token],
+  ["activeAmount", UInt],
+  ["activeCtc", Contract],
+]);
+
+const State = Struct([
+  ...Struct.fields(ReverseState(DIST_LENGTH)),
+  ...Struct.fields(ActiveState)
+]);
 
 // FUNCS
 
@@ -35,7 +54,6 @@ const precision = 1000000; // 10 ^ 6
 /*
  * calculate price based on seconds elapsed since reference secs
  */
-
 const priceFunc =
   (secs) => (startPrice, floorPrice, referenceConcensusSecs, dk) =>
     max(
@@ -76,27 +94,14 @@ const safePercent = (amount, percentage, percentPrecision) =>
 
 // INTERACTS
 
-const relayInteract = {};
-
-const Params = Object({
-  tokenAmount: UInt, // NFT token amount
-  startPrice: UInt, // 100
-  floorPrice: UInt, // 1
-  endSecs: UInt, // 1
-  addrs: Array(Address, DIST_LENGTH), // [addr, addr, addr, addr, addr, addr, addr, addr, addr, addr]
-  distr: Array(UInt, DIST_LENGTH), // [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-  royaltyCap: UInt, // 10
-  acceptFee: UInt, // 0.008
-  constructFee: UInt, // 0.006
-  relayFee: UInt, // 0.007
-  curatorFee: UInt, // 0.1
-  bidFee: UInt, // 0.001
-});
-
 const auctioneerInteract = {
-  getParams: Fun([], Params),
+  getParams: Fun([], Params(DIST_LENGTH)),
   signal: Fun([], Null),
 };
+
+const relayInteract = {};
+
+// CONTRACT
 
 export const Event = () => [];
 
@@ -104,32 +109,6 @@ export const Participants = () => [
   Participant("Auctioneer", auctioneerInteract),
   ParticipantClass("Relay", relayInteract),
 ];
-
-const State = Struct([
-  ["manager", Address],
-  ["token", Token],
-  ["tokenAmount", UInt],
-  ["currentPrice", UInt],
-  ["startPrice", UInt],
-  ["floorPrice", UInt],
-  ["closed", Bool],
-  ["endSecs", UInt],
-  ["priceChangePerSec", UInt],
-  ["addrs", Array(Address, DIST_LENGTH)],
-  ["distr", Array(UInt, DIST_LENGTH)],
-  ["royaltyCap", UInt],
-  ["who", Address],
-  ["partTake", UInt],
-  ["acceptFee", UInt],
-  ["constructFee", UInt],
-  ["relayFee", UInt],
-  ["curatorFee", UInt],
-  ["curatorAddr", Address],
-  ["timestamp", UInt],
-  ["activeToken", Token],
-  ["activeAmount", UInt],
-  ["activeAddr", Address],
-]);
 
 export const Views = () => [
   View({
@@ -142,8 +121,8 @@ export const Api = () => [
     touch: Fun([], Null),
     acceptOffer: Fun([Address], Null),
     cancel: Fun([], Null),
-    bid: Fun([UInt], Null),
-    unlock: Fun([], Null),
+    bid: Fun([Contract], Null),
+    bidCancel: Fun([], Null),
   }),
 ];
 
@@ -165,11 +144,6 @@ export const App = (map) => {
       addrs,
       distr,
       royaltyCap,
-      acceptFee,
-      constructFee,
-      relayFee,
-      curatorFee,
-      bidFee,
     } = declassify(interact.getParams());
   });
 
@@ -181,12 +155,7 @@ export const App = (map) => {
     endSecs,
     addrs,
     distr,
-    royaltyCap,
-    acceptFee,
-    constructFee,
-    relayFee,
-    curatorFee,
-    bidFee
+    royaltyCap
   )
     .check(() => {
       check(tokenAmount > 0, "tokenAmount must be greater than 0");
@@ -204,30 +173,11 @@ export const App = (map) => {
         royaltyCap == (10 * floorPrice) / 1000000,
         "royaltyCap must be 10x of floorPrice"
       );
-      check(
-        acceptFee >= FEE_MIN_ACCEPT,
-        "acceptFee must be greater than or equal to minimum accept fee"
-      );
-      check(
-        constructFee >= FEE_MIN_CONSTRUCT,
-        "constructFee must be greater than or equal to minimum construct fee"
-      );
-      check(
-        relayFee >= FEE_MIN_RELAY,
-        "relayFee must be greater than or equal to minimum relay fee"
-      );
-      check(
-        curatorFee >= FEE_MIN_CURATOR,
-        "curatorFee must be greater than or equal to minimum curator fee"
-      );
-      check(
-        bidFee >= FEE_MIN_BID,
-        "bidFee must be greater than or equal to minimum bid fee"
-      );
     })
     .pay([
-      amt + (constructFee + acceptFee + relayFee + curatorFee) + SERIAL_VER,
+      amt + (FEE_MIN_CONSTRUCT + FEE_MIN_ACCEPT + FEE_MIN_RELAY) + SERIAL_VER,
       [tokenAmount, token],
+      [FEE_MIN_ACTIVE_ACTIVATION, activeToken],
     ])
     .timeout(relativeTime(ttl), () => {
       // Step
@@ -235,7 +185,10 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer(amt + constructFee + SERIAL_VER).to(addr);
+  transfer([
+    amt + FEE_MIN_CONSTRUCT + SERIAL_VER,
+    [FEE_MIN_ACTIVE_ACTIVATION, activeToken],
+  ]).to(addr);
 
   Auctioneer.interact.signal();
 
@@ -263,22 +216,14 @@ export const App = (map) => {
     distr,
     royaltyCap: royaltyCap,
     who: Auctioneer,
-    partTake: 0,
-    acceptFee,
-    constructFee,
-    relayFee,
-    curatorFee,
-    curatorAddr: Auctioneer,
     timestamp: referenceConcensusSecs,
     activeToken,
     activeAmount: 0,
-    activeAddr: Auctioneer,
+    activeCtc: getContract(), // ref to self never used
   };
 
-  v.state.set(State.fromObject(initialState));
-
   // Step
-  const [state] = parallelReduce([initialState])
+  const [state, mctc] = parallelReduce([initialState, MContract.None()])
     .define(() => {
       v.state.set(State.fromObject(state));
     })
@@ -292,25 +237,22 @@ export const App = (map) => {
       "token balance accurate after closed"
     )
     // ACTIVE TOKEN BALANCE
-    .invariant(
-      implies(!state.closed, balance(activeToken) == state.activeAmount),
-      "active token balance accurate before closed"
-    )
-    .invariant(
-      implies(state.closed, balance(activeToken) == 0),
-      "active token balance accurate before closed"
-    )
+    .invariant(balance(activeToken) == 0, "active token balance accurate")
     // BALANCE
     .invariant(
-      implies(!state.closed, balance() == acceptFee + relayFee + curatorFee),
+      implies(!state.closed, balance() == FEE_MIN_ACCEPT + FEE_MIN_RELAY),
       "balance accurate before close"
     )
     // REM missing invariant balance accurate after close
     .while(!state.closed)
     .paySpec([activeToken])
     // api: updates current price
+    //  allows anybody to update price
     .api_(a.touch, () => {
-      check(state.currentPrice >= floorPrice);
+      check(
+        state.currentPrice >= floorPrice,
+        "currentPrice must be greater than or equal to floorPrice"
+      );
       return [
         (k) => {
           k(null);
@@ -324,11 +266,18 @@ export const App = (map) => {
                 dk
               ),
             },
+            mctc,
           ];
         },
       ];
     })
     // api: accepts offer
+    // allows anybody but curator to accept offer
+    //  transfers 1% to addr
+    //  calculates proceeding take
+    //  transfers reamining to seller
+    //  transfers accept fee, diff, and token amount to buy
+    //  transfers currator fee to curator
     .api_(a.acceptOffer, (cAddr) => {
       check(cAddr != this, "cannot accept offer as curator");
       return [
@@ -348,70 +297,133 @@ export const App = (map) => {
           const partTake = remaining / royaltyCap;
           const proceedTake = partTake * distrTake;
           const sellerTake = remaining - proceedTake;
-          transfer([cent, [state.activeAmount, activeToken]]).to(addr);
+          transfer(cent).to(addr);
           transfer(sellerTake).to(Auctioneer);
-          transfer([acceptFee + diff, [tokenAmount, token]]).to(this);
-          transfer(curatorFee).to(cAddr);
+          transfer([FEE_MIN_ACCEPT + diff, [tokenAmount, token]]).to(this);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
+          }
           return [
             {
               ...state,
+              addrs: Array.set(state.addrs, ADDR_RESERVED_CURATOR, cAddr),
+              distr: distr.map((d) => d * partTake),
               currentPrice: bal,
               who: this,
               closed: true,
-              curatorAddr: cAddr,
-              partTake,
             },
+            mctc,
           ];
         },
       ];
     })
-    // api: bid
-    .api_(a.bid, (msg) => {
-      check(msg > state.activeAmount, "bid must be greater than active amount");
-      return [
-        [bidFee, [msg, activeToken]],
-        (k) => {
-          k(null);
-          transfer(bidFee).to(addr);
-          transfer(state.activeAmount, activeToken).to(state.activeAddr);
-          return [
-            {
-              ...state,
-              activeAmount: msg,
-              activeAddr: this,
-            },
-          ];
-        },
-      ];
-    })
-    // api: claim
-    .api_(a.unlock, () => {
-      check(this == addr, "only master can unlock");
-      return [
-        (k) => {
-          k(null);
-          return [
-            {
-              ...state,
-              activeAddr: this
-            },
-          ];
-        }
-      ];
-    })
-    // api: cancels auction
+    // api: cancel
+    // allows auctioneer to cancel auction
+    //  transfers accept and curator fee and token(s) back to auctionee
+    //  unstakes active token if any
     .api_(a.cancel, () => {
       check(this == Auctioneer, "only auctioneer can cancel");
       return [
         (k) => {
           k(null);
-          transfer([acceptFee + curatorFee, [tokenAmount, token]]).to(this);
-          transfer(state.activeAmount, activeToken).to(state.activeAddr);
+          transfer([FEE_MIN_ACCEPT, [tokenAmount, token]]).to(this);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
+          }
           return [
             {
               ...state,
+              addrs: Array.set(
+                state.addrs,
+                ADDR_RESERVED_ACTIVE_BIDDER,
+                Auctioneer
+              ),
               closed: true,
+              activeAmount: 0,
+              activeCtc: getContract(),
             },
+            MContract.None(),
+          ];
+        },
+      ];
+    })
+    // api: bid
+    // allows anybody to supersede the current bid
+    //  transfer bid fee in network token and non-network token (active token) to addr
+    //  unlock active token if any
+    .api_(a.bid, (ctc) => {
+      return [
+        [0, [FEE_MIN_ACTIVE_BID, activeToken]],
+        (k) => {
+          k(null);
+          transfer([0, [FEE_MIN_ACTIVE_BID, activeToken]]).to(addr);
+          const { manager: r1Manager, tokenAmount: r1TokenAmount } = rStake(
+            ctc,
+            activeToken,
+            state.activeAmount
+          );
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
+          }
+          return [
+            {
+              ...state,
+              currentPrice: priceFunc(thisConsensusSecs())(
+                startPrice,
+                floorPrice,
+                referenceConcensusSecs,
+                dk
+              ),
+              addrs: Array.set(
+                state.addrs,
+                ADDR_RESERVED_ACTIVE_BIDDER,
+                r1Manager
+              ),
+              activeAmount: r1TokenAmount,
+              activeCtc: ctc,
+            },
+            MContract.Some(ctc),
+          ];
+        },
+      ];
+    })
+    // api: bid cancel
+    // allows the bidder to cancel their bid
+    // unstakes active token if any
+    .api_(a.bidCancel, () => {
+      check(this == state.addrs[ADDR_RESERVED_ACTIVE_BIDDER], "only active bidder can cancel bid");
+      return [
+        (k) => {
+          k(null);
+          switch (mctc) {
+            case Some:
+              rUnstake(mctc);
+            case None:
+          }
+          return [
+            {
+              ...state,
+              currentPrice: priceFunc(thisConsensusSecs())(
+                startPrice,
+                floorPrice,
+                referenceConcensusSecs,
+                dk
+              ),
+              addrs: Array.set(
+                state.addrs,
+                ADDR_RESERVED_ACTIVE_BIDDER,
+                Auctioneer
+              ),
+              activeAmount: 0,
+              activeCtc: getContract(),
+            },
+            MContract.None(),
           ];
         },
       ];
@@ -420,10 +432,9 @@ export const App = (map) => {
   commit();
 
   Relay.publish();
-  // Step
   ((recvAmount, pDistr) => {
-    transfer(pDistr[0]).to(state.activeAddr); // reserved
-    transfer(pDistr[1]).to(addrs[1]);
+    transfer(pDistr[0]).to(state.addrs[0]); // reserved for active bidder
+    transfer(pDistr[1]).to(state.addrs[1]); // reserved for curator
     transfer(pDistr[2]).to(addrs[2]);
     transfer(pDistr[3]).to(addrs[3]);
     commit();
@@ -441,12 +452,18 @@ export const App = (map) => {
     });
     // Step
     Relay.publish(rAddr);
-    transfer(recvAmount).to(rAddr);
+
+    transfer([
+      recvAmount,
+      [getUntrackedFunds(token), token],
+      [getUntrackedFunds(activeToken), activeToken],
+    ]).to(rAddr);
+    transfer(pDistr[8]).to(addrs[8]);
     commit();
     exit();
   })(
-    balance() - distrTake * state.partTake,
-    distr.map((d) => d * state.partTake)
+    balance() - state.distr.sum(),
+    state.distr
   );
 };
 // -----------------------------------------------
