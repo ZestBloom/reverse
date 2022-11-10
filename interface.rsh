@@ -3,7 +3,7 @@
 
 // -----------------------------------------------
 // Name: KINN Active Reverse Auction (A1)
-// Version: 1.2.7 - protect relay txn from rt
+// Version: 1.2.8 - updat stake add delegate
 // Requires Reach v0.1.11-rc7 (27cb9643) or later
 // -----------------------------------------------
 // TODO calculate price change per second with more precision
@@ -12,24 +12,38 @@
 
 import { min, max } from "@nash-protocol/starter-kit#lite-v0.1.9r1:util.rsh";
 
-import { rStake, rUnstake } from "@KinnFoundation/stake#stake-v0.1.11r0:interface.rsh";
+import {
+  view,
+  baseEvents,
+  baseState
+} from "@KinnFoundation/base#base-v0.1.11r4:interface.rsh";
 
-import { Params, State as ReverseState, MContract } from "@KinnFoundation/reverse#reverse-v0.1.11r3:interface.rsh";
+import {
+  rStake,
+  rUnstake
+} from "@KinnFoundation/stake#stake-v0.1.11r1:interface.rsh";
+
+import {
+  Params,
+  State as ReverseState,
+  MContract
+} from "@KinnFoundation/reverse#reverse-v0.1.11r3:interface.rsh";
 
 // CONSTS
 
 const SERIAL_VER = 0; // serial version of reach app reserved to release identical contracts under a separate plana id
 
-const DIST_LENGTH = 9; // number of slots to distribute proceeds after sale
+const DIST_LENGTH = 10; // number of slots to distribute proceeds after sale
 
-const FEE_MIN_ACCEPT = 8_000; // 0.008
-const FEE_MIN_CONSTRUCT = 7_000; // 0.007
-const FEE_MIN_RELAY = 20_000; // 0.019 + 0.001
 const FEE_MIN_ACTIVE_BID = 1; // 1au
 const FEE_MIN_ACTIVE_ACTIVATION = 1; // 1au
 
+/*
+ * namedd indices for addrs
+ */
 const ADDR_RESERVED_ACTIVE_BIDDER = 0;
 const ADDR_RESERVED_CURATOR = 1;
+const ADDR_RESERVED_ADDR = 2;
 
 // TYPES
 
@@ -41,8 +55,44 @@ const ActiveState = Struct([
 
 const State = Struct([
   ...Struct.fields(ReverseState(DIST_LENGTH)),
-  ...Struct.fields(ActiveState)
+  ...Struct.fields(ActiveState),
 ]);
+
+// FUN
+
+const fState = (State) => Fun([], State);
+export const fTouch = Fun([], Null);
+export const fAcceptOffer = Fun([Address], Null);
+export const fCancel = Fun([], Null);
+export const fBid = Fun([Contract], Null);
+export const fBidCancel = Fun([], Null);
+
+// REMOTE FUN
+
+export const rState = (ctc, State) => {
+  const r = remote(ctc, { state: fState(State) });
+  return r.state();
+};
+
+export const rTouch = (ctc) => {
+  const r = remote(ctc, { touch: fTouch });
+  r.touch();
+};
+
+export const rBid = (ctc) => {
+  const r = remote(ctc, { bid: fBid });
+  r.bid();
+};
+
+// API
+
+export const api = {
+  touch: fTouch,
+  acceptOffer: fAcceptOffer,
+  cancel: fCancel,
+  bid: fBid,
+  bidCancel: fBidCancel,
+};
 
 // FUNCS
 
@@ -96,46 +146,36 @@ const safePercent = (amount, percentage, percentPrecision) =>
 
 const auctioneerInteract = {
   getParams: Fun([], Params(DIST_LENGTH)),
-  signal: Fun([], Null),
 };
 
 const relayInteract = {};
 
+const eveInteract = {};
+
 // CONTRACT
 
-export const Event = () => [];
+export const Event = () => [Events({ ...baseEvents })];
 
 export const Participants = () => [
-  Participant("Auctioneer", auctioneerInteract),
-  ParticipantClass("Relay", relayInteract),
+  Participant("Manager", auctioneerInteract),
+  Participant("Relay", relayInteract),
+  Participant("Eve", eveInteract),
 ];
 
-export const Views = () => [
-  View({
-    state: State,
-  }),
-];
+export const Views = () => [View(view(State))];
 
-export const Api = () => [
-  API({
-    touch: Fun([], Null),
-    acceptOffer: Fun([Address], Null),
-    cancel: Fun([], Null),
-    bid: Fun([Contract], Null),
-    bidCancel: Fun([], Null),
-  }),
-];
+export const Api = () => [API(api)];
 
 export const App = (map) => {
   const [
     { amt, ttl, tok0: token, tok1: activeToken },
     [addr, _],
-    [Auctioneer, Relay],
+    [Manager, Relay, _],
     [v],
     [a],
-    _,
+    [e],
   ] = map;
-  Auctioneer.only(() => {
+  Manager.only(() => {
     const {
       tokenAmount,
       startPrice,
@@ -146,9 +186,8 @@ export const App = (map) => {
       royaltyCap,
     } = declassify(interact.getParams());
   });
-
   // Step
-  Auctioneer.publish(
+  Manager.publish(
     tokenAmount,
     startPrice,
     floorPrice,
@@ -175,7 +214,7 @@ export const App = (map) => {
       );
     })
     .pay([
-      amt + (FEE_MIN_CONSTRUCT + FEE_MIN_ACCEPT + FEE_MIN_RELAY) + SERIAL_VER,
+      amt + SERIAL_VER,
       [tokenAmount, token],
       [FEE_MIN_ACTIVE_ACTIVATION, activeToken],
     ])
@@ -185,12 +224,11 @@ export const App = (map) => {
       commit();
       exit();
     });
-  transfer([
-    amt + FEE_MIN_CONSTRUCT + SERIAL_VER,
-    [FEE_MIN_ACTIVE_ACTIVATION, activeToken],
-  ]).to(addr);
+  transfer([amt + SERIAL_VER, [FEE_MIN_ACTIVE_ACTIVATION, activeToken]]).to(
+    addr
+  );
 
-  Auctioneer.interact.signal();
+  e.appLaunch();
 
   const distrTake = distr.sum();
 
@@ -203,19 +241,18 @@ export const App = (map) => {
   ).i.i;
 
   const initialState = {
-    manager: Auctioneer,
+    ...baseState(Manager),
     token,
     tokenAmount,
     currentPrice: startPrice,
     startPrice,
     floorPrice,
-    closed: false,
     endSecs,
     priceChangePerSec: dk / precision,
-    addrs,
+    addrs: Array.set(addrs, ADDR_RESERVED_ADDR, addr),
     distr,
     royaltyCap: royaltyCap,
-    who: Auctioneer,
+    who: Manager,
     timestamp: referenceConcensusSecs,
     activeToken,
     activeAmount: 0,
@@ -240,10 +277,16 @@ export const App = (map) => {
     .invariant(balance(activeToken) == 0, "active token balance accurate")
     // BALANCE
     .invariant(
-      implies(!state.closed, balance() == FEE_MIN_ACCEPT + FEE_MIN_RELAY),
+      implies(!state.closed, balance() == 0),
       "balance accurate before close"
     )
-    // REM missing invariant balance accurate after close
+    .invariant(
+      implies(
+        state.closed,
+        balance() == state.distr.slice(2, DIST_LENGTH - 2).sum()
+      ),
+      "balance accurate after close"
+    )
     .while(!state.closed)
     .paySpec([activeToken])
     // api: updates current price
@@ -280,6 +323,11 @@ export const App = (map) => {
     //  transfers currator fee to curator
     .api_(a.acceptOffer, (cAddr) => {
       check(cAddr != this, "cannot accept offer as curator");
+      check(
+        state.addrs[ADDR_RESERVED_ACTIVE_BIDDER] != this,
+        "cannot accept offer as bidder"
+      );
+      check(Manager != this, "cannot accept offer as manager");
       return [
         [state.currentPrice, [0, activeToken]],
         (k) => {
@@ -292,14 +340,15 @@ export const App = (map) => {
           );
           // expect state[cp] >= bal
           const diff = state.currentPrice - bal;
-          const cent = bal / 100;
-          const remaining = bal - cent;
-          const partTake = remaining / royaltyCap;
+          const partTake = bal / royaltyCap;
           const proceedTake = partTake * distrTake;
-          const sellerTake = remaining - proceedTake;
-          transfer(cent).to(addr);
-          transfer(sellerTake).to(Auctioneer);
-          transfer([FEE_MIN_ACCEPT + diff, [tokenAmount, token]]).to(this);
+          const sellerTake = bal - proceedTake;
+          transfer(distr[0] * partTake).to(
+            state.addrs[ADDR_RESERVED_ACTIVE_BIDDER]
+          );
+          transfer(distr[1] * partTake).to(state.addrs[ADDR_RESERVED_CURATOR]);
+          transfer(sellerTake).to(Manager);
+          transfer([diff, [tokenAmount, token]]).to(this);
           switch (mctc) {
             case Some:
               rUnstake(mctc);
@@ -309,7 +358,15 @@ export const App = (map) => {
             {
               ...state,
               addrs: Array.set(state.addrs, ADDR_RESERVED_CURATOR, cAddr),
-              distr: distr.map((d) => d * partTake),
+              distr: Array.set(
+                Array.set(
+                  distr.map((d) => d * partTake),
+                  ADDR_RESERVED_ACTIVE_BIDDER,
+                  0
+                ),
+                ADDR_RESERVED_CURATOR,
+                0
+              ),
               currentPrice: bal,
               who: this,
               closed: true,
@@ -324,11 +381,11 @@ export const App = (map) => {
     //  transfers accept and curator fee and token(s) back to auctionee
     //  unstakes active token if any
     .api_(a.cancel, () => {
-      check(this == Auctioneer, "only auctioneer can cancel");
+      check(this == Manager, "only auctioneer can cancel");
       return [
         (k) => {
           k(null);
-          transfer([FEE_MIN_ACCEPT, [tokenAmount, token]]).to(this);
+          transfer([[tokenAmount, token]]).to(this);
           switch (mctc) {
             case Some:
               rUnstake(mctc);
@@ -337,12 +394,9 @@ export const App = (map) => {
           return [
             {
               ...state,
-              addrs: Array.set(
-                state.addrs,
-                ADDR_RESERVED_ACTIVE_BIDDER,
-                Auctioneer
-              ),
+              distr: Array.replicate(DIST_LENGTH, 0),
               closed: true,
+              currentPrice: 0,
               activeAmount: 0,
               activeCtc: getContract(),
             },
@@ -397,7 +451,10 @@ export const App = (map) => {
     // allows the bidder to cancel their bid
     // unstakes active token if any
     .api_(a.bidCancel, () => {
-      check(this == state.addrs[ADDR_RESERVED_ACTIVE_BIDDER], "only active bidder can cancel bid");
+      check(
+        this == state.addrs[ADDR_RESERVED_ACTIVE_BIDDER],
+        "only active bidder can cancel bid"
+      );
       return [
         (k) => {
           k(null);
@@ -418,7 +475,7 @@ export const App = (map) => {
               addrs: Array.set(
                 state.addrs,
                 ADDR_RESERVED_ACTIVE_BIDDER,
-                Auctioneer
+                Manager
               ),
               activeAmount: 0,
               activeCtc: getContract(),
@@ -429,41 +486,33 @@ export const App = (map) => {
       ];
     })
     .timeout(false);
+  e.appClose();
   commit();
 
+  // Step
   Relay.publish();
-  ((recvAmount, pDistr) => {
-    transfer(pDistr[0]).to(state.addrs[0]); // reserved for active bidder
-    transfer(pDistr[1]).to(state.addrs[1]); // reserved for curator
-    transfer(pDistr[2]).to(addrs[2]);
-    transfer(pDistr[3]).to(addrs[3]);
-    commit();
-
-    // Step
-    Relay.publish();
-    transfer(pDistr[4]).to(addrs[4]);
-    transfer(pDistr[5]).to(addrs[5]);
-    transfer(pDistr[6]).to(addrs[6]);
-    transfer(pDistr[7]).to(addrs[7]);
-    commit();
-
-    Relay.only(() => {
-      const rAddr = this;
-    });
-    // Step
-    Relay.publish(rAddr);
-
-    transfer([
-      recvAmount,
-      [getUntrackedFunds(token), token],
-      [getUntrackedFunds(activeToken), activeToken],
-    ]).to(rAddr);
-    transfer(pDistr[8]).to(addrs[8]);
+  if (
+    state.who == Manager ||
+    state.distr.slice(2, DIST_LENGTH - 2).sum() == 0
+  ) {
+    transfer(state.distr.slice(2, DIST_LENGTH - 2).sum()).to(Manager);
     commit();
     exit();
-  })(
-    balance() - state.distr.sum(),
-    state.distr
-  );
+  }
+  transfer(state.distr[2]).to(addrs[2]);
+  transfer(state.distr[3]).to(addrs[3]);
+  transfer(state.distr[4]).to(addrs[4]);
+  transfer(state.distr[5]).to(addrs[5]);
+  commit();
+  // Step
+  Anybody.publish();
+  if (state.distr.slice(6, DIST_LENGTH - 6).sum() != 0) {
+    transfer(state.distr[6]).to(addrs[6]);
+    transfer(state.distr[7]).to(addrs[7]);
+    transfer(state.distr[8]).to(addrs[8]);
+    transfer(state.distr[9]).to(addrs[9]);
+  }
+  commit();
+  exit();
 };
 // -----------------------------------------------
