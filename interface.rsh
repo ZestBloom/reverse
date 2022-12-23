@@ -3,8 +3,7 @@
 
 // -----------------------------------------------
 // Name: Sale (token)
-// Author: Nicholas Shellabarger
-// Version: 0.0.1 - sale token initial
+// Version: 0.0.2 - fix extra amount, add safe accept
 // Requires Reach v0.1.7
 // -----------------------------------------------
 
@@ -49,6 +48,7 @@ export const Params = Object({
 
 const fState = (State) => Fun([], State);
 const fAcceptOffer = Fun([], Null);
+const fSafeAcceptOffer = Fun([], Null);
 const fCancel = Fun([], Null);
 
 // REMOTE FUN
@@ -74,6 +74,7 @@ export const Event = () => [Events({ ...baseEvents })];
 export const Api = () => [
   API({
     acceptOffer: fAcceptOffer,
+    safeAcceptOffer: fSafeAcceptOffer,
     cancel: fCancel,
   }),
 ];
@@ -89,21 +90,20 @@ export const App = (map) => {
   ] = map;
   Manager.only(() => {
     const { tokenAmount, price } = declassify(interact.getParams());
-    assume(tokenAmount > 0);
-    assume(price > 0);
+    const extraAmount = price < 100 ? 1_000_000 : 0;
   });
-  Manager.publish(tokenAmount, price)
+  Manager.publish(tokenAmount, price, extraAmount)
     .check(() => {
       check(tokenAmount > 0, "token amount must be greater than 0");
       check(price > 0, "price must be greater than 0");
     })
-    .pay([amt + SERIAL_VER, [tokenAmount, token]])
+    .pay([amt + SERIAL_VER + extraAmount, [tokenAmount, token]])
     .timeout(relativeTime(ttl), () => {
       Anybody.publish();
       commit();
       exit();
     });
-  transfer(amt + SERIAL_VER).to(addr);
+  transfer(amt + SERIAL_VER + extraAmount).to(addr);
   e.appLaunch();
 
   const initialState = {
@@ -139,7 +139,7 @@ export const App = (map) => {
     .while(!s.closed)
     .paySpec([tokenP])
     // api: acceptOffer
-    .api_(a.acceptOffer, () => {
+    .api_(a.safeAcceptOffer, () => {
       return [
         [0, [s.price, tokenP]],
         (k) => {
@@ -158,6 +158,27 @@ export const App = (map) => {
         },
       ];
     })
+    // api: acceptOffer
+    .api_(a.acceptOffer, () => {
+      return [
+        [0, [s.price, tokenP]],
+        (k) => {
+          k(null);
+          const cent = s.price / 100;
+          transfer([[s.price - cent, tokenP]]).to(s.manager);
+          transfer([[s.tokenAmount, token]]).to(this);
+          transfer([[cent, tokenP]]).to(addr);
+          return [
+            {
+              ...s,
+              closed: true,
+              who: this,
+            },
+            0,
+          ];
+        },
+      ];
+    })
     // api: cancel
     .api_(a.cancel, () => {
       check(this === s.manager, "Only the manager can cancel the auction");
@@ -170,7 +191,7 @@ export const App = (map) => {
               ...s,
               closed: true,
             },
-            0
+            0,
           ];
         },
       ];
